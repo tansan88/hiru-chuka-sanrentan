@@ -192,7 +192,7 @@
     return `<span class="od ${cls}"><small>${m.pop}番人気</small><b>${oddsTxt(m.odds)}</b></span>`;
   }
   function nameCell(m, bold) { return `<span class="nm ${m.name.length > 9 ? 'long' : ''}" style="${bold ? '' : 'font-weight:500'}">${esc(m.name)}</span>`; }
-  function oddsNote(v) { return v.oddsLive ? '<div class="onote">オッズはみんなの予想で少しずつ動きます。締切の時点で確定します</div>' : ''; }
+  function oddsNote(v) { return v.oddsLive ? '<div class="onote">オッズと人気はみんなの予想（使ったpt）で動きます。締切の時点で確定します</div>' : ''; }
   function tableHead(cols) { return `<div class="tr th"><span>枠</span><span>メニュー</span><span>オッズ</span>${cols.map(c => `<span>${c}</span>`).join('')}</div>`; }
 
   function predictView(v) {
@@ -472,8 +472,8 @@
         <div><b>日替わりpt</b>　当たった日ごとに<br><b style="color:var(--turf)">使うpt × 1/3 × その品のオッズ</b><small style="color:var(--sub)">（端数は切り捨て）</small></div>
         <div><b>3連単</b>　3日とも当たれば、さらに<br><b style="color:var(--red)">使うpt × 3品のオッズのかけ算</b></div>
         <div style="border-top:1px dashed var(--line2);padding-top:8px;color:var(--sub);font-size:12px">例：1,000pt使って、1・2・3番人気（2.0・3.0・4.5倍）を<br>3日とも当てると 666＋1,000＋1,500＋27,000 ＝ <b style="color:var(--ink);font-size:14px">30,166pt</b><br>火曜だけ当たったら <b style="color:var(--ink)">666pt</b>（収支 −334pt）</div>
-        <div style="color:var(--sub);font-size:12px">倍率は、下の<b style="color:var(--ink)">人気順の基本の倍率</b>を、<b style="color:var(--ink)">みんなの予想の偏り</b>で補正したものです。予想が集まった品は下がり、少ない品は上がります（基本の0.6〜1.6倍の範囲）。<b style="color:var(--ink)">締切の時点の倍率</b>で確定します。</div>
-        <div class="oddsg">${o.slice(0, 8).map((x, i) => `<span>${i + 1}番人気 <b>${Number.isInteger(x) && x >= 10 ? x : oddsTxt(x)}</b></span>`).join('')}</div>
+        <div style="color:var(--sub);font-size:12px">倍率は、ホストが並べた順の<b style="color:var(--ink)">基本の倍率</b>（下の表）を、<b style="color:var(--ink)">みんなが使ったpt</b>で補正したものです。ptが多く集まった品は下がり、少ない品は上がります（基本の0.6〜1.6倍の範囲）。「○番人気」は今の倍率の低い順で、<b style="color:var(--ink)">締切の時点の倍率</b>で確定します。</div>
+        <div class="oddsg">${o.slice(0, 8).map((x, i) => `<span>${i + 1}番目 <b>${Number.isInteger(x) && x >= 10 ? x : oddsTxt(x)}</b></span>`).join('')}</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--sub)">
         <div><b style="color:var(--ink)">中止の日</b>　メニュー外を食べた日や休みの日がある週は、使ったptを全額返します。当たり・はずれは記録だけ残ります。</div>
