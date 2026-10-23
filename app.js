@@ -192,6 +192,7 @@
     return `<span class="od ${cls}"><small>${m.pop}番人気</small><b>${oddsTxt(m.odds)}</b></span>`;
   }
   function nameCell(m, bold) { return `<span class="nm ${m.name.length > 9 ? 'long' : ''}" style="${bold ? '' : 'font-weight:500'}">${esc(m.name)}</span>`; }
+  function oddsNote(v) { return v.oddsLive ? '<div class="onote">オッズはみんなの予想で少しずつ動きます。締切の時点で確定します</div>' : ''; }
   function tableHead(cols) { return `<div class="tr th"><span>枠</span><span>メニュー</span><span>オッズ</span>${cols.map(c => `<span>${c}</span>`).join('')}</div>`; }
 
   function predictView(v) {
@@ -201,7 +202,7 @@
       S.bet = v.myPred ? String(v.myPred.bet) : String(Math.min(1000, Math.floor(S.data.me.balance / 100) * 100) || '');
     }
     const rows = v.menus.map(m => `<div class="tr">${waku(m.waku)}${nameCell(m, true)}${oddsCell(m)}${DAYS.map(d => `<button class="dot ${S.picks[d] === m.waku ? 'on' : ''}" data-day="${d}" data-waku="${m.waku}" aria-pressed="${S.picks[d] === m.waku}" aria-label="${d} ${esc(m.name)}"></button>`).join('')}</div>`).join('');
-    return raceHead(v, '<span class="pill open">受付中</span>') + mumble(v) +
+    return raceHead(v, '<span class="pill open">受付中</span>') + mumble(v) + oddsNote(v) +
       `<div class="tbl">${tableHead(DAYS)}${rows}</div>
       <div class="dock" id="dock">
         <div class="l1"><span class="picks" id="dpicks"></span><span class="mul" id="dmul"></span></div>
@@ -225,7 +226,7 @@
     if (!q('dpicks')) return;
     q('dpicks').textContent = done ? names.join(' → ') : '火・水・木を1つずつ選んでください';
     q('dmul').textContent = done ? r.mul.toFixed(1) + '倍' : '';
-    q('dret').innerHTML = done && !er && bet ? `3日とも当たれば<br><b>${fmt(r.all)}</b> pt` : '';
+    q('dret').innerHTML = done && !er && bet ? `3日とも当たれば（いまの倍率で）<br><b>${fmt(r.all)}</b> pt` : '';
     q('derr').textContent = er;
     q('decide').disabled = !(done && bet && !er);
   }
@@ -236,11 +237,11 @@
     const rows = v.menus.map(m => `<div class="tr">${waku(m.waku)}${nameCell(m, DAYS.some(d => v.myPred.picks[d] === m.waku))}${oddsCell(m)}${DAYS.map(d => v.myPred.picks[d] === m.waku ? '<span class="mk hit" aria-label="予想"></span>' : '<span></span>').join('')}</div>`).join('');
     return raceHead(v, '<span class="pill open">受付中</span>') +
       `<div class="banner"><span class="ck">✓</span><div><b>へい、まいど！予想を受け付けました</b><small>${at.getMonth() + 1}/${at.getDate()}（${'日月火水木金土'[at.getDay()]}）${at.getHours()}:${String(at.getMinutes()).padStart(2, '0')}</small></div></div>` +
-      `<div class="tbl" style="margin-top:10px">${tableHead(DAYS)}${rows}</div>
+      `<div style="margin-top:10px">${oddsNote(v)}</div><div class="tbl">${tableHead(DAYS)}${rows}</div>
       <div class="pad" style="margin-top:auto"><div class="card"><div class="hd"><span>あなたの予想</span><span>${r.mul.toFixed(1)}倍</span></div><div class="bd">
         <b style="font-size:15px">${names.map(esc).join(' → ')}</b>
         <div class="kv"><span>使うpt</span><b>${fmt(v.myPred.bet)} pt</b></div>
-        <div class="kv"><span>3日とも当たれば</span><b style="color:var(--turf)">${fmt(r.all)} pt</b></div>
+        <div class="kv"><span>3日とも当たれば（いまの倍率で）</span><b style="color:var(--turf)">${fmt(r.all)} pt</b></div>
         <button class="btn ghost" id="edit">予想を変更する</button></div></div></div>`;
   }
   function closedView(v) {
@@ -471,6 +472,7 @@
         <div><b>日替わりpt</b>　当たった日ごとに<br><b style="color:var(--turf)">使うpt × 1/3 × その品のオッズ</b><small style="color:var(--sub)">（端数は切り捨て）</small></div>
         <div><b>3連単</b>　3日とも当たれば、さらに<br><b style="color:var(--red)">使うpt × 3品のオッズのかけ算</b></div>
         <div style="border-top:1px dashed var(--line2);padding-top:8px;color:var(--sub);font-size:12px">例：1,000pt使って、1・2・3番人気（2.0・3.0・4.5倍）を<br>3日とも当てると 666＋1,000＋1,500＋27,000 ＝ <b style="color:var(--ink);font-size:14px">30,166pt</b><br>火曜だけ当たったら <b style="color:var(--ink)">666pt</b>（収支 −334pt）</div>
+        <div style="color:var(--sub);font-size:12px">倍率は、下の<b style="color:var(--ink)">人気順の基本の倍率</b>を、<b style="color:var(--ink)">みんなの予想の偏り</b>で補正したものです。予想が集まった品は下がり、少ない品は上がります（基本の0.6〜1.6倍の範囲）。<b style="color:var(--ink)">締切の時点の倍率</b>で確定します。</div>
         <div class="oddsg">${o.slice(0, 8).map((x, i) => `<span>${i + 1}番人気 <b>${Number.isInteger(x) && x >= 10 ? x : oddsTxt(x)}</b></span>`).join('')}</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--sub)">
