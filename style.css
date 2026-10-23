@@ -283,3 +283,10 @@ a{color:var(--turf)}
 #toast.on{opacity:1}
 .demo{background:#FFF1C2;color:#5A4A00;font-size:12px;text-align:center;padding:4px 8px}
 @media (prefers-reduced-motion: reduce){*{animation-duration:.01ms!important;animation-iteration-count:1!important}}
+
+/* コック（線画） */
+.chefimg{display:block;object-fit:contain}
+.mumble .chefimg{width:44px;height:44px;flex:none}
+.notice .chefimg{width:60px;height:60px;flex:none}
+.center .chefimg.chef{width:140px;height:140px}
+.hello .chefimg{width:132px;height:132px}

@@ -2,7 +2,8 @@
 (function () {
   'use strict';
   const DAYS = ['火', '水', '木'];
-  const CHEF = `<svg viewBox="0 0 160 180" role="img" aria-label="店長"><path d="M18 180C20 150 46 134 80 134s60 16 62 46z" fill="#FFFFFF" stroke="#C9D3CC" stroke-width="2"></path><rect x="72" y="124" width="16" height="13" fill="#E7BC92"></rect><path d="M64 132h32v9q-16 4-32 0z" fill="#FFFFFF" stroke="#C8102E" stroke-width="2"></path><path d="M80 141q16 9 32 9" stroke="#D6DCD8" stroke-width="2" fill="none"></path><g fill="#C8102E" stroke="#C8102E" stroke-width="2.4" stroke-linecap="round"><path d="M83 146h10"></path><circle cx="88" cy="146" r="2.3" stroke="none"></circle><path d="M95 150h10"></path><circle cx="100" cy="150" r="2.3" stroke="none"></circle><path d="M107 152h10"></path><circle cx="112" cy="152" r="2.3" stroke="none"></circle></g><circle cx="52" cy="104" r="6.5" fill="#E7BC92"></circle><circle cx="108" cy="104" r="6.5" fill="#E7BC92"></circle><ellipse cx="80" cy="104" rx="28" ry="27" fill="#F6D1A9"></ellipse><circle cx="63" cy="113" r="5" fill="#F2A08A" opacity=".55"></circle><circle cx="97" cy="113" r="5" fill="#F2A08A" opacity=".55"></circle><path d="M64 92q6-5 12 0M84 92q6-5 12 0" stroke="#3B2A20" stroke-width="3.2" fill="none" stroke-linecap="round"></path><path d="M65 100q5 5 10 0M85 100q5 5 10 0" stroke="#222222" stroke-width="2.6" fill="none" stroke-linecap="round"></path><ellipse cx="80" cy="107" rx="4.5" ry="3.4" fill="#E9AF84"></ellipse><path d="M60 116c6-9 15-7 20-2 5-5 14-7 20 2-6 1-13 5-20 1-7 4-14 0-20-1z" fill="#3B2A20"></path><path d="M72 121q8 9 16 0q-8 3-16 0z" fill="#B23A2E"></path><path d="M55 84 L50 34 Q48 15 64 16 Q70 3 80 4 Q90 3 96 16 Q112 15 110 34 L105 84 Z" fill="#FFFFFF" stroke="#C9D3CC" stroke-width="2" stroke-linejoin="round"></path><path d="M66 28v48M80 20v56M94 28v48" stroke="#E4E8E5" stroke-width="2.4" stroke-linecap="round"></path><rect x="52" y="74" width="56" height="14" rx="4" fill="#F3F4F3" stroke="#C9D3CC" stroke-width="2"></rect></svg>`;
+  const chefImg = (k, cls) => `<img class="chefimg${cls ? ' ' + cls : ''}" src="assets/chef_${k}.png" alt="">`;
+  const CHEF = chefImg('smile');
   const BOWL = c => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11h18a9 9 0 0 1-18 0z" fill="${c}"/><rect x="8" y="19.5" width="8" height="2" rx="1" fill="${c}"/>${c === '#C8102E' ? '<path d="M9 8c0-1.5 1.5-1.5 1.5-3M13.5 8c0-1.5 1.5-1.5 1.5-3" stroke="#C8102E" stroke-width="1.6" fill="none" stroke-linecap="round"/>' : ''}</svg>`;
   const WAKU = [null, ['#FFFFFF', '#222222', '#222222'], ['#222222', '#FFFFFF'], ['#D7261E', '#FFFFFF'], ['#1F5BC4', '#FFFFFF'], ['#F3D11E', '#222222'], ['#2E8B3E', '#FFFFFF'], ['#F08A1C', '#222222'], ['#F4A3C0', '#222222']];
   const LOGO = '<span class="logo"><span class="hc"><b><i>昼</i></b><span>中華</span></span>3連単</span>';
@@ -178,7 +179,7 @@
   function yosoTab() {
     const D = S.data, cur = D.current;
     if (!cur) {
-      return `<div class="center">${CHEF.replace('<svg', '<svg class="chef"')}<div class="bubble"><p style="font-size:16px;font-weight:900">ただいま仕込み中です</p><p>今週の出馬表は月曜に公開します。もうしばらくお待ちください。</p></div>${D.hasPrevResult ? '<button class="btn ghost" data-go="kekka">先週の結果を見る</button>' : ''}</div>`;
+      return `<div class="center">${chefImg('pan','chef')}<div class="bubble"><p style="font-size:16px;font-weight:900">ただいま仕込み中です</p><p>今週の出馬表は月曜に公開します。もうしばらくお待ちください。</p></div>${D.hasPrevResult ? '<button class="btn ghost" data-go="kekka">先週の結果を見る</button>' : ''}</div>`;
     }
     if (cur.isMyHostWeek) return hostWeekView(cur);
     if (cur.closed) return closedView(cur);
@@ -285,7 +286,7 @@
   function hostWeekView(v) {
     const rows = v.menus.slice().sort((a, b) => a.waku - b.waku).map(m => `<div class="tr tr4">${waku(m.waku)}${nameCell(m, m.pop <= 2)}<span style="text-align:right;${m.pop === 1 ? 'color:var(--red);font-weight:700' : m.pop === 2 ? 'color:#1F5BC4;font-weight:700' : ''}">${m.pop}番人気</span><span style="text-align:right">${oddsTxt(m.odds)}</span></div>`).join('');
     return raceHead(v, v.closed ? '<span class="pill run">開催中</span>' : '<span class="pill open">受付中</span>') +
-      `<div class="notice cream">${CHEF}<div><b>今週はあなたが担当です</b><span>今週は予想できません。</span></div></div>
+      `<div class="notice cream">${chefImg('sorry')}<div><b>今週はあなたが担当です</b><span>今週は予想できません。</span></div></div>
       <div style="margin:14px 14px 6px;font-size:12px;font-weight:700;color:var(--sub)">今週の出馬表</div>
       <div class="tbl"><div class="tr tr4 th"><span>枠</span><span>メニュー</span><span style="text-align:right">人気</span><span style="text-align:right">オッズ</span></div>${rows}</div>
       <div class="pad" style="margin-top:auto"><button class="btn green block" data-go="host">ホストタブで食べたものを登録する</button></div>`;
@@ -293,7 +294,7 @@
   function zeroView(v) {
     const rows = v.menus.map(m => `<div class="tr">${waku(m.waku)}${nameCell(m, false)}${oddsCell(m)}${DAYS.map(() => '<button class="dot" disabled aria-hidden="true"></button>').join('')}</div>`).join('');
     return raceHead(v, '<span class="pill open">受付中</span>') +
-      `<div class="notice pink">${CHEF}<div><b style="color:var(--red)">持ち点がなくなりました</b><span>オーナーに補充をお願いしてください。</span></div></div>
+      `<div class="notice pink">${chefImg('sorry')}<div><b style="color:var(--red)">持ち点がなくなりました</b><span>オーナーに補充をお願いしてください。</span></div></div>
       <div class="tbl" style="margin-top:12px;opacity:.5">${tableHead(DAYS)}${rows}</div>
       <div class="dock" style="background:var(--bg);color:var(--mute)"><button class="btn block" disabled style="background:#C9D3CC;color:#FFF">補充されるまでお休みです</button></div>`;
   }
@@ -329,7 +330,7 @@
   // ---------- 結果タブ ----------
   function kekkaTab() {
     const v = S.data.lastResult;
-    if (!v) return `<div class="center">${CHEF.replace('<svg', '<svg class="chef"')}<div class="bubble"><p style="font-size:16px;font-weight:900">まだ結果はありません</p><p>木曜に結果が確定すると、ここに出ます。</p></div></div>`;
+    if (!v) return `<div class="center">${chefImg('surprise','chef')}<div class="bubble"><p style="font-size:16px;font-weight:900">まだ結果はありません</p><p>木曜に結果が確定すると、ここに出ます。</p></div></div>`;
     return resultView(v);
   }
   function resultView(v) {
