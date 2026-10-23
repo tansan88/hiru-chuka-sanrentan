@@ -565,7 +565,8 @@
         return `<div class="dayc"><div class="t"><span>${d}曜</span><span class="done">${r.waku === 0 ? '中止' : r.waku + ' ' + esc(r.name)} ✓ 発表済み</span></div>${r.photo ? `<div class="thumb"><img src="${esc(r.photo)}" alt="" referrerpolicy="no-referrer"></div>` : ''}<button class="btn gray" data-redo="${d}">やり直す</button></div>`;
       }
       if (d !== next) return `<div class="dayc" style="color:var(--mute)"><div class="t"><span>${d}曜</span><span style="font-size:12px;font-weight:500">${DAYS[DAYS.indexOf(d) - 1]}曜のあとに登録</span></div></div>`;
-      const opts = w.menus.slice().sort((a, b) => a.waku - b.waku).map(m => `<option value="${m.waku}" ${r && r.waku === m.waku ? 'selected' : ''}>${m.waku} ${esc(m.name)}</option>`).join('');
+      const sel = (S.daySel || {})[d];
+      const opts = w.menus.slice().sort((a, b) => a.waku - b.waku).map(m => `<option value="${m.waku}" ${(sel ? sel === m.waku : r && r.waku === m.waku) ? 'selected' : ''}>${m.waku} ${esc(m.name)}</option>`).join('');
       const ph = S.photo[d];
       return `<div class="dayc cur"><div class="t"><span>${d}曜に食べたもの</span></div>
         <select id="dsel" style="font-size:16px;padding:10px;border:1.5px solid var(--turf);border-radius:6px;background:#FFF"><option value="">— 選んでください —</option>${opts}</select>
@@ -610,6 +611,7 @@
         await api('saveWeek', { weekId: hp.weekId, raceName: hp.raceName, mumble: hp.mumble, deadline: new Date(hp.deadline).toISOString(), menus: menus.map(m => ({ waku: m.waku, name: m.name.trim() })), publish: publish || (w && w.status === '受付中') });
         toast(publish ? (w && w.status === '受付中' ? '保存しました' : '出馬表を公開しました') : '下書きを保存しました');
         S.data = await api('state', {}, { loading: false });
+        S.hp = null; // 保存した内容（枠の詰め直しなど）をサーバーから読み直す
         await loadHost();
       } catch (e) { er.textContent = e.message; }
     };
@@ -619,12 +621,15 @@
   function bindDay(w) {
     $app.querySelectorAll('[data-redo]').forEach(b => b.onclick = () => { S.redo[b.dataset.redo] = true; render(); });
     const next = DAYS.find(d => !w.results[d] || S.redo[d]);
+    S.daySel = S.daySel || {};
+    const ds = document.getElementById('dsel');
+    if (ds) ds.onchange = () => { S.daySel[next] = Number(ds.value) || 0; }; // 写真を選んで画面が描き直されても、選んだメニューを覚えておく
     const file = document.getElementById('dfile'), pb = document.getElementById('dphoto');
     if (pb && file) { pb.onclick = () => file.click(); file.onchange = async () => { const f = file.files[0]; if (!f) return; try { S.photo[next] = await shrink(f); render(); } catch (e) { toast('写真を読み込めませんでした'); } }; }
     const send = async wk => {
       try {
         await api('registerDay', { weekId: w.weekId, day: next, waku: wk, photo: wk === 0 ? null : S.photo[next] || null });
-        delete S.redo[next]; delete S.photo[next];
+        delete S.redo[next]; delete S.photo[next]; delete S.daySel[next];
         toast(next + '曜を' + (wk === 0 ? '中止にしました' : '発表しました'));
         S.data = await api('state', {}, { loading: false });
         await loadHost();
