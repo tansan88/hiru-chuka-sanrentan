@@ -109,6 +109,7 @@ function doPost(e) {
     const out = fn(req) || {};
     out.ok = true;
     out.ms = Date.now() - t0; // サーバーの中でかかった時間（速さを測るため）
+    if (envSuffix_()) out.prof = PROF_.join(' / ');
     return json_(out);
   } catch (err) {
     if (err instanceof UserError) return json_({ ok: false, error: err.message });
@@ -180,9 +181,13 @@ const API = {
 
   // --- ゲスト ---
   state(r) {
+    let tp = Date.now();
     const u = auth_(r);
+    prof_('[認証]', tp); tp = Date.now();
     const db = load_();
+    prof_('[読込]', tp); tp = Date.now();
     const me = meInfo_(u, db);
+    prof_('[自分]', tp);
     const open = currentWeek_(db);
     const out = { me, odds: oddsTable_(), now: new Date().toISOString() };
     if (open) out.current = weekView_(open, u, db, false);
@@ -628,8 +633,10 @@ function auth_(r) {
   if (!token) fail_('ログインしてください');
   const u = readUsers_().find(x => x.token === token);
   if (!u) fail_('ログインしてください');
+  let tp = Date.now();
   if (tokenExpired_(u)) fail_('しばらく使っていなかったため、もう一度ログインしてください');
   touchToken_(u, false);
+  prof_('鍵の期限', tp);
   return u;
 }
 // ログイン鍵（自動ログイン）の有効期限：最後に使ってから30日。使うたびに延びる
@@ -669,8 +676,10 @@ function hash_(salt, pass) {
 
 // ===== シート読み書き =====
 // 1回の呼び出しの中では、同じシートを何度も探さない（スプレッドシートへの問い合わせは1回ごとに時間がかかる）
-let SS_ = null, SHEET_ = {}, ENV_ = null;
-function resetCache_() { SS_ = null; SHEET_ = {}; ENV_ = null; SETTINGS_ = null; }
+let SS_ = null, SHEET_ = {}, ENV_ = null, PROF_ = [];
+function resetCache_() { SS_ = null; SHEET_ = {}; ENV_ = null; SETTINGS_ = null; PROF_ = []; }
+// テスト環境だけ：どこに時間がかかったかを返事に入れる
+function prof_(label, t) { PROF_.push(label + ' ' + (Date.now() - t)); }
 function ss_() { return SS_ || (SS_ = SpreadsheetApp.getActiveSpreadsheet()); }
 function findSheet_(name) { if (!SHEET_[name]) SHEET_[name] = ss_().getSheetByName(name); return SHEET_[name]; }
 function sheet_(name) {
@@ -690,9 +699,11 @@ function rowsAuto_(name) {
   return findSheet_(name) ? rows_(name) : [];
 }
 function rows_(name) {
+  const tp = Date.now();
   const sh = sheet_(name);
   // 入っている範囲を1回で読む（行数を数えてから読むと2回の問い合わせになる）
   const all = sh.getDataRange().getValues();
+  prof_(name + '(' + all.length + '行)', tp);
   if (all.length < 2) return [];
   const head = SHEETS[name];
   return all.slice(1).map(v => { while (v.length < head.length) v.push(''); return v; }).map((v, i) => {
@@ -714,9 +725,11 @@ function deleteRows_(name, rows) { rows.sort((a, b) => b - a).forEach(r => sheet
 let SETTINGS_ = null;
 function getSetting_(key) {
   if (!SETTINGS_) {
+    const tp = Date.now();
     const sh = findSheet_('設定');
     SETTINGS_ = {};
     sh.getRange(2, 1, Math.max(1, sh.getLastRow() - 1), 2).getValues().forEach(x => { if (x[0] !== '') SETTINGS_[x[0]] = x[1]; });
+    prof_('設定', tp);
   }
   return SETTINGS_[key] !== undefined ? SETTINGS_[key] : '';
 }
