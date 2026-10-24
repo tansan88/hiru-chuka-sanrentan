@@ -74,6 +74,6 @@ const G = {
 };
 module.exports = codePath => {
   const code = fs.readFileSync(codePath, 'utf8');
-  const ctx = new Function(...Object.keys(G), code + '\n;return { doPost, doGet, 初期設定, API, SHEETS, バックアップを設定する, バックアップを取る, 定期バックアップ, エラー通知のテスト, ログインロックを解除する, reportError_, __reset: () => { SETTINGS_ = null; } };')(...Object.values(G));
+  const ctx = new Function(...Object.keys(G), code + '\n;return { doPost, doGet, lastBackupAt_, 初期設定, API, SHEETS, バックアップを設定する, バックアップを取る, 定期バックアップ, エラー通知のテスト, ログインロックを解除する, reportError_, __reset: () => { SETTINGS_ = null; } };')(...Object.values(G));
   return { ctx, SS, files, coerce, G };
 };

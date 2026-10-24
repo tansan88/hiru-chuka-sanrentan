@@ -1,0 +1,39 @@
+# 本番の見張り：毎週金曜の朝7時ごろ、本番に問い合わせて次を確かめる。おかしければ失敗になり、GitHub からメールが届く
+#   ・本番のURLが返事をするか
+#   ・今朝のバックアップがあるか（金曜5時ごろに取る）
+#   ・毎週のバックアップの予約が残っているか
+# 手で実行したときは「1週間以内のバックアップがあるか」で確かめる
+# ※ GitHub は、リポジトリに60日間更新がないと定期実行を止めることがある
+name: 本番の見張り
+
+on:
+  schedule:
+    - cron: '0 22 * * 4'   # 木曜22時（世界標準時）＝ 金曜7時（日本時間）
+  workflow_dispatch:
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: 本番に問い合わせる
+        run: |
+          DID=$(grep -E '^\s*API_URL:' config.js | grep -oE 'macros/s/[A-Za-z0-9_-]+' | head -1 | sed 's#macros/s/##')
+          URL="https://script.google.com/macros/s/$DID/exec?check=health"
+          if [ "${{ github.event_name }}" = "schedule" ]; then MAX_H=8; else MAX_H=170; fi
+          R=""
+          for i in 1 2 3; do R=$(curl -sL -m 60 "$URL" || true); echo "$R" | jq -e .ok > /dev/null 2>&1 && break; sleep 20; done
+          echo "返事：$(echo "$R" | head -c 300)"
+          NG=0
+          if [ "$(echo "$R" | jq -r '.ok' 2>/dev/null)" != "true" ]; then echo "::error::本番のURLが正しく返事をしません"; exit 1; fi
+          if [ "$(echo "$R" | jq -r '.backupTrigger')" != "true" ]; then echo "::error::毎週のバックアップの予約が見つかりません（Apps Script で関数「バックアップを設定する」を実行してください）"; NG=1; fi
+          LAST=$(echo "$R" | jq -r '.lastBackupAt // empty')
+          if [ -z "$LAST" ]; then echo "::error::バックアップが1つも見つかりません"; NG=1
+          else
+            AGE_H=$(( ( $(date -u +%s) - $(date -u -d "$LAST" +%s) ) / 3600 ))
+            if [ "$AGE_H" -gt "$MAX_H" ]; then echo "::error::最後のバックアップが ${AGE_H} 時間前です（${MAX_H} 時間以内のはず）。最後：$(TZ=Asia/Tokyo date -d "$LAST" '+%Y-%m-%d %H:%M')"; NG=1
+            else echo "::notice::最後のバックアップ：$(TZ=Asia/Tokyo date -d "$LAST" '+%Y-%m-%d %H:%M')（${AGE_H} 時間前）"; fi
+          fi
+          if [ "$NG" = "1" ]; then exit 1; fi
+          echo "### 本番の見張り：OK" >> "$GITHUB_STEP_SUMMARY"

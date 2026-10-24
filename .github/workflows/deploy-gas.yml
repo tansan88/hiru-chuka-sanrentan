@@ -187,6 +187,31 @@ jobs:
           fi
           exit 1
 
+      - name: テスト環境で一通り操作してみる（登録・ログイン・画面の読み込み・権限）
+        if: steps.deploy.outcome == 'success' && steps.check.outputs.target == 'test'
+        run: |
+          URL="https://script.google.com/macros/s/${{ steps.deploy.outputs.did }}/exec"
+          V=$(grep -oE 'APP_VERSION = [0-9]+' app.js | grep -oE '[0-9]+$')
+          post() { curl -sL -m 60 -H 'Content-Type: text/plain;charset=utf-8' --data "$1" "$URL"; }
+          fail() { echo "::error::テスト環境の通し確認で失敗：$1 → $(echo "$2" | head -c 200)"; exit 1; }
+          NICK="ci$(date -u +%m%d%H%M)$((RANDOM % 1000))"; PASS=$(printf '%04d' $((RANDOM % 10000)))
+          R=$(post "{\"action\":\"register\",\"nick\":\"$NICK\",\"pass\":\"$PASS\",\"v\":$V}")
+          T=$(echo "$R" | jq -r '.token // empty'); [ -n "$T" ] || fail "登録" "$R"
+          R=$(post "{\"action\":\"login\",\"nick\":\"$NICK\",\"pass\":\"$PASS\",\"v\":$V}")
+          [ "$(echo "$R" | jq -r '.token // empty')" = "$T" ] || fail "ログイン" "$R"
+          R=$(post "{\"action\":\"login\",\"nick\":\"$NICK\",\"pass\":\"x$PASS\",\"v\":$V}")
+          [ "$(echo "$R" | jq -r '.ok')" = "false" ] || fail "まちがったパスワードを断る" "$R"
+          R=$(post "{\"action\":\"state\",\"token\":\"$T\",\"v\":$V}")
+          [ "$(echo "$R" | jq -r '.ok')" = "true" ] && [ "$(echo "$R" | jq -r '.me.nick')" = "$NICK" ] || fail "予想画面の読み込み" "$R"
+          R=$(post "{\"action\":\"history\",\"token\":\"$T\",\"v\":$V}")
+          [ "$(echo "$R" | jq -r '.ok')" = "true" ] || fail "過去の結果の読み込み" "$R"
+          R=$(post "{\"action\":\"hostState\",\"token\":\"$T\",\"v\":$V}")
+          echo "$R" | jq -r '.error // empty' | grep -q 'ホスト' || fail "ゲストのホスト操作を断る" "$R"
+          R=$(curl -sL -m 60 "$URL?check=health")
+          [ "$(echo "$R" | jq -r '.ok')" = "true" ] && [ "$(echo "$R" | jq -r '.test')" = "true" ] || fail "見張り用の問い合わせ" "$R"
+          echo "### テスト環境の通し確認：OK（$NICK で登録〜読み込みまで）" >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::テスト環境の通し確認：OK（テスト用アカウント $NICK を作りました）"
+
       - name: 後片付け
         if: always()
         run: rm -f ~/.clasprc.json

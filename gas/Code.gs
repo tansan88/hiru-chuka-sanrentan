@@ -72,7 +72,14 @@ function 初期設定() {
 }
 
 // ===== Web API =====
-function doGet() {
+function doGet(e) {
+  // ?check=health … 外からの見張り（GitHub Actions）用。最後のバックアップの日時と、毎週の予約があるかを返す
+  if (e && e.parameter && e.parameter.check === 'health') {
+    const h = { ok: true, app: '昼中華3連単', test: !!envSuffix_() };
+    try { h.backupTrigger = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === '定期バックアップ'); } catch (err) { h.backupTrigger = null; h.triggerError = String(err && err.message || err).slice(0, 200); }
+    try { const at = lastBackupAt_(); h.lastBackupAt = at ? at.toISOString() : null; } catch (err) { h.lastBackupAt = null; h.backupError = String(err && err.message || err).slice(0, 200); }
+    return json_(h);
+  }
   return json_({ ok: true, app: '昼中華3連単' });
 }
 
@@ -798,6 +805,15 @@ function バックアップを取る() {
 }
 function 定期バックアップ() {
   try { backup_(); } catch (e) { reportError_('バックアップ', '定期バックアップ', e && e.message || String(e), e && e.stack || ''); throw e; }
+}
+// バックアップのフォルダにある、いちばん新しいバックアップの作成日時（無ければ null）
+function lastBackupAt_() {
+  const fid = getSetting_('バックアップフォルダID');
+  if (!fid) return null;
+  const it = DriveApp.getFolderById(fid).getFiles();
+  let last = null;
+  while (it.hasNext()) { const f = it.next(); if (f.getName().indexOf(BACKUP_PREFIX) === 0 && !f.isTrashed()) { const d = f.getDateCreated(); if (!last || d > last) last = d; } }
+  return last;
 }
 function backup_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
