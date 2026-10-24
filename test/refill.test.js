@@ -26,7 +26,7 @@ let pass=0,fail=0;const ok=(c,m,x)=>{if(c)pass++;else{fail++;console.log('FAIL',
  r=await A('refill',{token:g,method:'review',answers:{understood:'すぐ分かった',body:'あいうえおかきくけこさしすせそたちつてと',bug:'あった',bugText:'  '}}); ok(!r.ok&&/内容/.test(r.error),'不具合の内容必須',r);
  r=await A('refill',{token:g,method:'review',answers:{understood:'ちがう',body:'あいうえおかきくけこさしすせそたちつてと',bug:'なかった'}}); ok(!r.ok,'選択肢外',r);
  r=await A('refill',{token:g,method:'review',answers:{understood:'少し迷った',body:'=1+1 あいうえおかきくけこさしすせそたちつてと',bug:'あった',bugText:'文字を大きくしたら崩れた',note:'TRUE'},device:'Mozilla/5.0 (Linux; Android 14)'}); ok(r.ok && r.pt===15000 && r.balance===15050,'初回レビュー',r);
- const rv=await X("return SS.getSheetByName('レビュー').data[1]"); ok(rv.r && rv.r[3]==='初回' && rv.r[6]==="=1+1 あいうえおかきくけこさしすせそたちつてと" && rv.r[10]==='TRUE' && /Android/.test(rv.r[11]),'レビュー行(文字のまま)',rv);
+ const rv=await X("return SS.getSheetByName('レビュー').data[1]"); ok(rv.r && rv.r[3]==='初回' && rv.r[6]==="=1+1 あいうえおかきくけこさしすせそたちつてと" && rv.r[10]==='TRUE' && rv.r.length===11 && !/Android/.test(rv.r.join()),'レビュー行(文字のまま・端末は記録しない)',rv);
  // 2回目
  await X("SS.getSheetByName('参加者').data.forEach(r=>{if(r[1]==='g')r[5]=-10000})");
  s=await A('state',{token:g}); ok(s.me.balance===0 && s.me.reviewed===true,'2回目前',s.me);

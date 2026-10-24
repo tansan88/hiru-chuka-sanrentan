@@ -18,7 +18,7 @@ const SHEETS = {
   獲得pt: ['週ID', '参加者ID', 'ニックネーム', '火', '水', '木', '3連単', '返還', '獲得計', '収支'],
   ログ: ['日時', '参加者ID', 'ニックネーム', '操作', '内容'],
   補充: ['日時', '参加者ID', 'ニックネーム', '方法', 'pt'],
-  レビュー: ['日時', '参加者ID', 'ニックネーム', '回', '遊び方', 'テーマ', '内容', '配当', '不具合', '不具合の内容', 'ひとこと', '端末'],
+  レビュー: ['日時', '参加者ID', 'ニックネーム', '回', '遊び方', 'テーマ', '内容', '配当', '不具合', '不具合の内容', 'ひとこと'],
   クイズ: ['ID', '問題', 'A', 'B', 'C', 'D', '正解', '解説', '出典1', '出典2', '使う'],
   エラー: ['日時', '種類', '操作', '内容', '詳しい情報'],
 };
@@ -127,7 +127,8 @@ const API = {
     if (hash_(u.salt, String(r.pass || '')) !== u.pass) loginFailed_(u);
     clearLoginFail_(u);
     let token = u.token;
-    if (!token) { token = Utilities.getUuid(); setUserCell_(u, 'ログイン鍵', token); }
+    if (!token || tokenExpired_(u)) { token = Utilities.getUuid(); setUserCell_(u, 'ログイン鍵', token); }
+    touchToken_(u, true);
     log_(u.id, u.nick, 'ログイン', '');
     return { token };
   },
@@ -147,8 +148,12 @@ const API = {
     const salt = Utilities.getUuid();
     setUserCell_(u, 'ソルト', salt);
     setUserCell_(u, 'パスワード', hash_(salt, pass));
+    // ログイン鍵も新しくする（ほかの端末はログアウトされ、この端末だけ新しい鍵でログインしたままになる）
+    const token = Utilities.getUuid();
+    setUserCell_(u, 'ログイン鍵', token);
+    touchToken_(u, true);
     log_(u.id, u.nick, 'パスワード変更', '');
-    return {};
+    return { token };
   },
 
   // --- ゲスト ---
@@ -253,7 +258,7 @@ const API = {
       const understood = first ? pick(a.understood, REVIEW_OPT.understood, '遊び方が分かったか') : '';
       const topic = first ? '' : pick(a.topic, REVIEW_OPT.topics, '書きたいこと');
       const bal = first ? '' : pick(a.balance, REVIEW_OPT.balance, '配当のバランス');
-      sheet_('レビュー').appendRow([new Date(), u.id, txt_(u.nick), first ? '初回' : '2回目以降', understood, topic, txt_(body), bal, bug, txt_(bug === 'あった' ? bugText : ''), txt_(text(a.note, 1000)), txt_(text(r.device, 300))]);
+      sheet_('レビュー').appendRow([new Date(), u.id, txt_(u.nick), first ? '初回' : '2回目以降', understood, topic, txt_(body), bal, bug, txt_(bug === 'あった' ? bugText : ''), txt_(text(a.note, 1000))]);
       label = 'レビュー';
     }
     const pt = refillPt_(method);
@@ -534,7 +539,23 @@ function auth_(r) {
   if (!token) fail_('ログインしてください');
   const u = readUsers_().find(x => x.token === token);
   if (!u) fail_('ログインしてください');
+  if (tokenExpired_(u)) fail_('しばらく使っていなかったため、もう一度ログインしてください');
+  touchToken_(u, false);
   return u;
+}
+// ログイン鍵（自動ログイン）の有効期限：最後に使ってから30日。使うたびに延びる
+// 最後に使った日時はスクリプトのプロパティ「tokenUsed_参加者ID」に入れる（1時間に1回だけ書き込む）
+// ある人の自動ログインをすぐ止めたいときは、参加者シートのその人の「ログイン鍵」のセルを消す
+const TOKEN_IDLE_MS = 30 * 24 * 60 * 60 * 1000;
+function tokenExpired_(u) {
+  const last = Number(PropertiesService.getScriptProperties().getProperty('tokenUsed_' + u.id) || 0);
+  return last > 0 && Date.now() - last > TOKEN_IDLE_MS;
+}
+function touchToken_(u, force) {
+  const props = PropertiesService.getScriptProperties();
+  const key = 'tokenUsed_' + u.id;
+  const last = Number(props.getProperty(key) || 0);
+  if (force || !last || Date.now() - last > 3600000) props.setProperty(key, String(Date.now()));
 }
 function authHost_(r) {
   const u = auth_(r);

@@ -95,7 +95,7 @@
         res = await r.json();
       }
       if (!res.ok) {
-        if (res.error === 'ログインしてください') { logout(true); }
+        if (/ログインしてください$/.test(res.error || '')) { logout(true); }
         throw new Error(res.error || 'うまくいきませんでした');
       }
       return res;
@@ -532,7 +532,7 @@
       $app.innerHTML = subBar('パスワードを変える') + `<form class="form" id="f"><div class="field"><span>今のパスワード</span>${pinBox('p-old')}</div><div class="field"><span>新しいパスワード（数字4桁）</span>${pinBox('p-new')}</div><div class="err" id="er"></div><button class="btn green block">変更する</button></form>`;
       bindPin($app);
       document.getElementById('back').onclick = () => { S.screen = null; render(); };
-      document.getElementById('f').onsubmit = async e => { e.preventDefault(); const o = document.getElementById('p-old').value, n = document.getElementById('p-new').value; if (!/^\d{4}$/.test(n)) return document.getElementById('er').textContent = '新しいパスワードは数字4桁です'; try { await api('changePass', { oldPass: o, newPass: n }); toast('パスワードを変えました'); S.screen = null; render(); } catch (er) { document.getElementById('er').textContent = er.message; } };
+      document.getElementById('f').onsubmit = async e => { e.preventDefault(); const o = document.getElementById('p-old').value, n = document.getElementById('p-new').value; if (!/^\d{4}$/.test(n)) return document.getElementById('er').textContent = '新しいパスワードは数字4桁です'; try { const r = await api('changePass', { oldPass: o, newPass: n }); if (r.token) { S.token = r.token; store.set('hc_token', r.token); } toast('パスワードを変えました'); S.screen = null; render(); } catch (er) { document.getElementById('er').textContent = er.message; } };
       return;
     }
     if (sc === 'refill' || sc === 'quiz' || sc === 'quizdone' || sc === 'review' || sc === 'reviewdone') return renderRefill(sc);
@@ -627,7 +627,7 @@
       upd();
       document.getElementById('rvsend').onclick = async () => {
         const answers = first ? { understood: f.understood, body: f.body, bug: f.bug, bugText: f.bugText, note: f.note } : { topic: f.topic, body: f.body, balance: f.balance, bug: f.bug, bugText: f.bugText, note: f.note };
-        try { const before = S.data.me.balance; const r = await api('refill', { method: 'review', answers, device: (navigator.userAgent || '').slice(0, 300) }); rf.done = { pt: r.pt, balance: r.balance, before }; S.screen = 'reviewdone'; render(); window.scrollTo(0, 0); }
+        try { const before = S.data.me.balance; const r = await api('refill', { method: 'review', answers }); rf.done = { pt: r.pt, balance: r.balance, before }; S.screen = 'reviewdone'; render(); window.scrollTo(0, 0); }
         catch (e) { document.getElementById('rverr').textContent = e.message; }
       };
       return;
