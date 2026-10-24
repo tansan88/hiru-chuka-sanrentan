@@ -50,6 +50,9 @@ jobs:
         run: |
           npm install -g @google/clasp@2.4.2
           printf '%s' "$CLASPRC_JSON" > ~/.clasprc.json
+          # 中身は出さずに、形だけ確かめる（キーの名前だけを表示）
+          if ! jq -e . ~/.clasprc.json > /dev/null 2>&1; then echo "::error::CLASPRC_JSON がJSONとして読めません（貼り付けた範囲を確認してください）"; exit 1; fi
+          echo "::notice::CLASPRC_JSON のキー: $(jq -c 'keys' ~/.clasprc.json) / token のキー: $(jq -c '(.token // {}) | keys' ~/.clasprc.json)"
 
       - name: いまの Apps Script を取得して、Code.gs だけ差し替える
         if: steps.check.outputs.ready == 'true'
