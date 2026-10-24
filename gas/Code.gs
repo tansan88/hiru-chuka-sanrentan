@@ -63,7 +63,7 @@ function 初期設定() {
   if (set.getLastRow() === 1) set.getRange(2, 1, DEFAULT_SETTINGS.length, 3).setValues(DEFAULT_SETTINGS);
   // 写真フォルダ
   if (!getSetting_('写真フォルダID')) {
-    const folder = DriveApp.createFolder('昼中華3連単の写真');
+    const folder = DriveApp.createFolder('昼中華3連単の写真' + envSuffix_());
     setSetting_('写真フォルダID', folder.getId());
   }
   const def = ss.getSheetByName('シート1');
@@ -722,6 +722,8 @@ function reportError_(kind, action, message, detail) {
   try { notifyError_(kind, action, message); } catch (e) { console.error(e); }
 }
 // テスト用のスプレッドシート（名前に「テスト」を含む）から送るメールには印を付ける
+// テスト環境で作るフォルダの名前に付ける印（本番のフォルダと見分けるため）
+function envSuffix_() { try { return /テスト/.test(SpreadsheetApp.getActiveSpreadsheet().getName()) ? '（テスト）' : ''; } catch (e) { return ''; } }
 function mailTag_() { try { return /テスト/.test(SpreadsheetApp.getActiveSpreadsheet().getName()) ? '［テスト環境］' : ''; } catch (e) { return ''; } }
 // 問い合わせのメール（宛先はエラー通知と同じ）
 function notifyContact_(u, kind, body) {
@@ -803,7 +805,7 @@ function backup_() {
   const fid = getSetting_('バックアップフォルダID');
   if (fid) { try { folder = DriveApp.getFolderById(fid); } catch (e) { folder = null; } }
   if (!folder) {
-    folder = DriveApp.createFolder('昼中華3連単のバックアップ');
+    folder = DriveApp.createFolder('昼中華3連単のバックアップ' + envSuffix_());
     setSetting_('バックアップフォルダID', folder.getId());
   }
   const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd_HHmm');
