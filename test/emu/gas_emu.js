@@ -42,7 +42,7 @@ class Range {
   setNumberFormat(f) { if (f === '@') for (let j = 0; j < this.nc; j++) this.sh.textCols.add(this.c + j); return this; }
   setFontWeight() { return this; } setBackground() { return this; }
 }
-const SS = { name: '昼中華3連単', getName() { return this.name; }, getId: () => 'ss1', getUrl: () => 'https://docs.google.com/spreadsheets/d/ss1/edit', sheets: [new Sheet('シート1')],
+const SS = { name: '昼中華3連単', getName() { return this.name; }, getSpreadsheetTimeZone: () => 'Asia/Tokyo', getId: () => 'ss1', getUrl: () => 'https://docs.google.com/spreadsheets/d/ss1/edit', sheets: [new Sheet('シート1')],
   getSheetByName(n) { return this.sheets.find(s => s.name === n) || null; },
   insertSheet(n) { const s = new Sheet(n); this.sheets.push(s); return s; },
   getSheets() { return this.sheets; }, deleteSheet(s) { this.sheets = this.sheets.filter(x => x !== s); } };
@@ -61,7 +61,7 @@ const G = {
     computeDigest: (alg, s) => [...crypto.createHash('sha256').update(s, 'utf8').digest()].map(b => b > 127 ? b - 256 : b),
     base64Decode: s => [...Buffer.from(s, 'base64')],
     newBlob: (bytes, mime, name) => ({ bytes, mime, name, getDataAsString: () => Buffer.from((bytes || []).map(b => b & 255)).toString('utf8') }),
-    formatDate: (d, tz, f) => { const p = n => String(n).padStart(2, '0'); const x = new Date(d.toLocaleString('en-US', { timeZone: tz })); return f.replace('yyyy', x.getFullYear()).replace('MM', p(x.getMonth() + 1)).replace('dd', p(x.getDate())).replace('HH', p(x.getHours())).replace('mm', p(x.getMinutes())); },
+    formatDate: (d, tz, f) => { const p = n => String(n).padStart(2, '0'); const x = new Date(d.toLocaleString('en-US', { timeZone: tz })); if (f === 'Z') return '+0900'; return f.replace('yyyy', x.getFullYear()).replace('MM', p(x.getMonth() + 1)).replace('dd', p(x.getDate())).replace('HH', p(x.getHours())).replace('mm', p(x.getMinutes())); },
   },
   DriveApp: (() => { const folders = {}; let n = 0, clock = 0;
     const mkFolder = name => { const id = 'bf' + (++n); const fl = { id, name, files: [], getId: () => id, createFile: b => { const fid = 'f' + Object.keys(files).length; files[fid] = b; return { getId: () => fid, setSharing() {} }; }, getFiles() { let i = 0; const a = fl.files; return { hasNext: () => i < a.length, next: () => a[i++] }; } }; folders[id] = fl; return fl; };
@@ -73,6 +73,18 @@ const G = {
   ScriptApp: (() => { const triggers = []; const b = { timeBased() { return b; }, onWeekDay(d) { b.d = d; return b; }, atHour(h) { b.h = h; return b; }, create() { triggers.push({ fn: b.fn, d: b.d, h: b.h, getHandlerFunction() { return this.fn; } }); } };
     return { WeekDay: { FRIDAY: 'FRIDAY' }, getProjectTriggers: () => triggers.slice(), deleteTrigger: t => triggers.splice(triggers.indexOf(t), 1), newTrigger: fn => { b.fn = fn; return b; }, _t: triggers }; })(),
   console,
+  // Sheets API（詳細サービス）の真似：本物と同じく、日付は数（シリアル値）、行末の空のセルと最後の空の行は省く
+  Sheets: { _off: false, calls: 0, Spreadsheets: { Values: { batchGet(id, opt) {
+    if (G.Sheets._off) throw new Error('Sheets API has not been used');
+    G.Sheets.calls++;
+    return { valueRanges: opt.ranges.map(rg => {
+      const m = rg.match(/^'(.+)'!A1:([A-Z])$/); const sh = SS.getSheetByName(m[1]); if (!sh) throw new Error('Unable to parse range: ' + rg);
+      const nc = m[2].charCodeAt(0) - 64;
+      let rows = sh.data.map(r => { const v = []; for (let j = 0; j < nc; j++) { let x = r[j]; if (x === undefined) x = ''; if (x instanceof Date) x = (x.getTime() + 9 * 3600000) / 86400000 + 25569; v.push(x); } while (v.length && v[v.length - 1] === '') v.pop(); return v; });
+      while (rows.length && !rows[rows.length - 1].length) rows.pop();
+      return { range: rg, values: rows };
+    }) };
+  } } } },
   // Drive API（詳細サービス）の真似：文字認識の結果は Drive._text で決める
   Drive: { _text: '', _fail: null, _n: 0, Files: {
     create(meta, blob, opt) { if (G.Drive._fail) throw new Error(G.Drive._fail); G.Drive._last = { meta, blob, opt }; return { id: 'ocr' + (++G.Drive._n) }; },

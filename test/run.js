@@ -5,7 +5,7 @@ const path = require('path');
 const PORT = String(process.env.EMU_PORT || 8790);
 const env = Object.assign({}, process.env, { TZ: 'Asia/Tokyo', EMU_PORT: PORT });
 const withServer = ['api.test.js', 'refill.test.js', 'audit.test.js'];
-const inProcess = ['backup.test.js', 'error.test.js', 'lock.test.js', 'token.test.js', 'contact.test.js', 'version.test.js', 'health.test.js', 'host.test.js'];
+const inProcess = ['backup.test.js', 'error.test.js', 'lock.test.js', 'token.test.js', 'contact.test.js', 'version.test.js', 'health.test.js', 'host.test.js', 'speed.test.js'];
 function judge(name, out) {
   const m = out.match(/PASS (\d+) FAIL (\d+)/), a = out.match(/NG (\d+) \/ (\d+)/);
   if (/CRASH/.test(out)) return { ok: false, line: 'CRASH' };

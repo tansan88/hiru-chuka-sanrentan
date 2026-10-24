@@ -96,6 +96,7 @@ function doPost(e) {
   resetCache_();
   let req = {};
   try { req = JSON.parse(e.postData.contents || '{}'); } catch (err) { return json_({ ok: false, error: '送信内容が読めませんでした' }); }
+  if (req.action !== 'clientError') prefetch_();
   if (req.action !== 'clientError' && (Number(req.v) || 0) < MIN_APP_VERSION) return json_({ ok: false, reload: true, error: 'アプリが新しくなりました。画面を開き直してください' });
   // 読むだけの操作は順番待ちをしない（書き込みだけ1件ずつ処理する）
   // readMenu は文字認識に数秒かかるが、シートには書かないので順番待ちをしない
@@ -676,13 +677,50 @@ function hash_(salt, pass) {
 
 // ===== シート読み書き =====
 // 1回の呼び出しの中では、同じシートを何度も探さない（スプレッドシートへの問い合わせは1回ごとに時間がかかる）
-let SS_ = null, SHEET_ = {}, ENV_ = null, PROF_ = [];
-function resetCache_() { SS_ = null; SHEET_ = {}; ENV_ = null; SETTINGS_ = null; PROF_ = []; }
+let SS_ = null, SHEET_ = {}, ENV_ = null, PROF_ = [], ROWS_ = {};
+function resetCache_() { SS_ = null; SHEET_ = {}; ENV_ = null; SETTINGS_ = null; PROF_ = []; ROWS_ = {}; }
+// よく使うシートを、Sheets API で1回の問い合わせでまとめて読んでおく（1枚ずつ読むと1枚0.2〜0.6秒かかる）
+// 使えないとき（Sheets API が無効など）は何もしない＝今までどおり1枚ずつ読む
+const PREFETCH_SHEETS = ['参加者', '週', 'メニュー', '結果', '予想', '獲得pt', '設定'];
+const DATE_HEADS_ = ['締切', '公開日時', '確定日時', '日時', '登録日時'];
+function prefetch_() {
+  const tp = Date.now();
+  try {
+    if (typeof Sheets === 'undefined' || !Sheets.Spreadsheets) return;
+    const col = n => String.fromCharCode(64 + n);
+    const res = Sheets.Spreadsheets.Values.batchGet(ss_().getId(), {
+      ranges: PREFETCH_SHEETS.map(n => "'" + n + "'!A1:" + col(SHEETS[n].length)),
+      valueRenderOption: 'UNFORMATTED_VALUE', dateTimeRenderOption: 'SERIAL_NUMBER',
+    });
+    const vr = res && res.valueRanges;
+    if (!vr || vr.length !== PREFETCH_SHEETS.length) return;
+    const tz = ss_().getSpreadsheetTimeZone() || Session.getScriptTimeZone();
+    PREFETCH_SHEETS.forEach((n, k) => { ROWS_[n] = { raw: fromApi_(n, vr[k].values || [], tz) }; });
+    prof_('まとめ読み', tp);
+  } catch (e) { ROWS_ = {}; prof_('まとめ読み失敗', tp); }
+}
+// Sheets API の値を、SpreadsheetApp で読んだときと同じ形にそろえる（日付は数で来るので日付に戻す・空のセルは '' で埋める）
+function fromApi_(name, values, tz) {
+  const head = SHEETS[name];
+  const di = head.map((h, j) => DATE_HEADS_.indexOf(h) >= 0 || h === '週ID' ? j : -1).filter(j => j >= 0);
+  return values.map(row => {
+    const v = head.map((_, j) => row[j] === undefined || row[j] === null ? '' : row[j]);
+    di.forEach(j => { if (typeof v[j] === 'number') v[j] = serialToDate_(v[j], tz); });
+    return v;
+  });
+}
+function serialToDate_(s, tz) {
+  const local = Math.round((s - 25569) * 86400000); // スプレッドシートの時刻（時差を含まない）
+  const z = Utilities.formatDate(new Date(local), tz, 'Z'); // 例：+0900
+  const off = (z[0] === '-' ? -1 : 1) * (Number(z.slice(1, 3)) * 60 + Number(z.slice(3, 5))) * 60000;
+  return new Date(local - off);
+}
 // テスト環境だけ：どこに時間がかかったかを返事に入れる
 function prof_(label, t) { PROF_.push(label + ' ' + (Date.now() - t)); }
 function ss_() { return SS_ || (SS_ = SpreadsheetApp.getActiveSpreadsheet()); }
 function findSheet_(name) { if (!SHEET_[name]) SHEET_[name] = ss_().getSheetByName(name); return SHEET_[name]; }
 function sheet_(name) {
+  delete ROWS_[name]; // 書き込むかもしれないので、まとめ読みした分は捨てる（次に読むときはシートから読む）
   const ss = ss_();
   let sh = findSheet_(name);
   if (!sh && AUTO_SHEETS.indexOf(name) >= 0) {
@@ -700,10 +738,14 @@ function rowsAuto_(name) {
 }
 function rows_(name) {
   const tp = Date.now();
-  const sh = sheet_(name);
-  // 入っている範囲を1回で読む（行数を数えてから読むと2回の問い合わせになる）
-  const all = sh.getDataRange().getValues();
-  prof_(name + '(' + all.length + '行)', tp);
+  let all;
+  if (ROWS_[name]) all = ROWS_[name].raw.map(r => r.slice());
+  else {
+    const sh = sheet_(name);
+    // 入っている範囲を1回で読む（行数を数えてから読むと2回の問い合わせになる）
+    all = sh.getDataRange().getValues();
+    prof_(name + '(' + all.length + '行)', tp);
+  }
   if (all.length < 2) return [];
   const head = SHEETS[name];
   return all.slice(1).map(v => { while (v.length < head.length) v.push(''); return v; }).map((v, i) => {
@@ -726,14 +768,16 @@ let SETTINGS_ = null;
 function getSetting_(key) {
   if (!SETTINGS_) {
     const tp = Date.now();
-    const sh = findSheet_('設定');
     SETTINGS_ = {};
+    if (ROWS_['設定']) { ROWS_['設定'].raw.slice(1).forEach(x => { if (x[0] !== '') SETTINGS_[x[0]] = x[1]; }); return SETTINGS_[key] !== undefined ? SETTINGS_[key] : ''; }
+    const sh = findSheet_('設定');
     sh.getRange(2, 1, Math.max(1, sh.getLastRow() - 1), 2).getValues().forEach(x => { if (x[0] !== '') SETTINGS_[x[0]] = x[1]; });
     prof_('設定', tp);
   }
   return SETTINGS_[key] !== undefined ? SETTINGS_[key] : '';
 }
 function setSetting_(key, val) {
+  delete ROWS_['設定'];
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('設定');
   const vals = sh.getRange(2, 1, Math.max(1, sh.getLastRow() - 1), 1).getValues();
   const i = vals.findIndex(x => x[0] === key);
