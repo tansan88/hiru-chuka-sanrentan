@@ -58,7 +58,8 @@ jobs:
         run: |
           mkdir -p work && cd work
           printf '{"scriptId":"%s","fileExtension":"gs"}' "$SCRIPT_ID" > .clasp.json
-          clasp pull
+          clasp pull > ../pull.log 2>&1 || { sed 's/^/::error::clasp pull: /' ../pull.log | head -20; exit 1; }
+          cat ../pull.log
           test -f appsscript.json || { echo "::error::appsscript.json を取得できませんでした"; exit 1; }
           cp ../gas/Code.gs Code.gs
           ls -la
@@ -67,7 +68,8 @@ jobs:
         if: steps.check.outputs.ready == 'true'
         run: |
           cd work
-          clasp push --force
+          clasp push --force > ../push.log 2>&1 || { sed 's/^/::error::clasp push: /' ../push.log | head -20; exit 1; }
+          cat ../push.log
           clasp deploy --deploymentId "${{ steps.check.outputs.deployment_id }}" --description "GitHub ${GITHUB_SHA::7}"
           echo "### Apps Script を更新しました（${GITHUB_SHA::7}）" >> "$GITHUB_STEP_SUMMARY"
 
