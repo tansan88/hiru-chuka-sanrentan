@@ -83,7 +83,18 @@ jobs:
             [ -e "$f" ] || continue
             if grep -q '昼中華3連単 サーバー' "$f"; then echo "置き換え対象: $f"; rm -f "$f"; fi
           done
-          cp ../gas/Code.gs Code.gs
+          # Apps Script 側のメインのファイル（「const SHEETS =」を含むもの）を探し、その名前のまま中身を差し替える
+          # （エディタで作ったプロジェクトは「コード.gs」という名前のことがある。同じ中身のファイルが2つあると動かなくなるので、余分なものは消す）
+          MAIN=""
+          for f in *.gs; do
+            [ -f "$f" ] || continue
+            if grep -q 'const SHEETS =' "$f"; then
+              if [ -z "$MAIN" ] && [ "$f" != "Code.gs" ]; then MAIN="$f"; else rm -f "$f"; fi
+            fi
+          done
+          if [ -z "$MAIN" ]; then MAIN="Code.gs"; fi
+          cp ../gas/Code.gs "$MAIN"
+          echo "::notice::差し替えたファイル: $MAIN / プロジェクトのファイル: $(ls *.gs *.json | tr '\n' ' ')"
           ls -la
           n=$(grep -l 'const SHEETS' *.gs | wc -l)
           if [ "$n" != "1" ]; then echo "::error::サーバーのファイルが1つになりませんでした（$n 個）"; exit 1; fi
