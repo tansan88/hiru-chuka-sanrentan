@@ -122,6 +122,7 @@
   function bindCommon() {
     $app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
     const m = $app.querySelector('[data-act="menu"]'); if (m) m.onclick = openMenu;
+    $app.querySelectorAll('[data-act="refill"]').forEach(b => b.onclick = openRefill);
   }
   function switchTab(t) {
     S.tab = t; store.set('hc_tab', t); S.editing = false;
@@ -179,12 +180,12 @@
   function yosoTab() {
     const D = S.data, cur = D.current;
     if (!cur) {
-      return `<div class="center">${chefImg('pan','chef')}<div class="bubble"><p style="font-size:16px;font-weight:900">ただいま仕込み中です</p><p>今週の出馬表は月曜に公開します。もうしばらくお待ちください。</p></div>${D.hasPrevResult ? '<button class="btn ghost" data-go="kekka">先週の結果を見る</button>' : ''}</div>`;
+      return `<div class="center">${chefImg('pan','chef')}<div class="bubble"><p style="font-size:16px;font-weight:900">ただいま仕込み中です</p><p>今週の出馬表は月曜に公開します。もうしばらくお待ちください。</p></div>${D.hasPrevResult ? '<button class="btn ghost" data-go="kekka">先週の結果を見る</button>' : ''}${D.me.canRefill ? '<button class="btn gold" data-act="refill">ptを補充する</button>' : ''}</div>`;
     }
     if (cur.isMyHostWeek) return hostWeekView(cur);
     if (cur.closed) return closedView(cur);
     if (cur.myPred && !S.editing) return votedView(cur);
-    if (D.me.balance <= 0 && !cur.myPred) return zeroView(cur);
+    if (D.me.canRefill && !cur.myPred) return zeroView(cur);
     return predictView(cur);
   }
   function oddsCell(m) {
@@ -295,9 +296,9 @@
   function zeroView(v) {
     const rows = v.menus.map(m => `<div class="tr">${waku(m.waku)}${nameCell(m, false)}${oddsCell(m)}${DAYS.map(() => '<button class="dot" disabled aria-hidden="true"></button>').join('')}</div>`).join('');
     return raceHead(v, '<span class="pill open">受付中</span>') +
-      `<div class="notice pink">${chefImg('sorry')}<div><b style="color:var(--red)">持ち点がなくなりました</b><span>オーナーに補充をお願いしてください。</span></div></div>
+      `<div class="notice pink">${chefImg('sorry')}<div><b style="color:var(--red)">${S.data.me.balance <= 0 ? '持ち点がなくなりました' : '持ち点が100ptを切りました'}</b><span>クイズかレビューで、すぐに補充できます。</span></div></div>
       <div class="tbl" style="margin-top:12px;opacity:.5">${tableHead(DAYS)}${rows}</div>
-      <div class="dock" style="background:var(--bg);color:var(--mute)"><button class="btn block" disabled style="background:#C9D3CC;color:#FFF">補充されるまでお休みです</button></div>`;
+      <div class="dock"><span class="rf-hint">補充すると、今週の予想にそのまま参加できます</span><button class="btn gold block" data-act="refill">ptを補充する</button></div>`;
   }
   function bindYoso() {
     $app.querySelectorAll('[data-go]').forEach(b => b.onclick = () => switchTab(b.dataset.go));
@@ -445,7 +446,7 @@
       <div class="bar" style="position:static"><b style="font-size:15px">メニュー</b><button class="ibtn" data-close aria-label="閉じる" style="font-size:16px">✕</button></div>
       <div class="who">${esc(D.me.nick)}</div>
       <div class="bal"><span>持ち点</span><b>${fmt(D.me.balance)} <span style="font-size:13px">pt</span></b></div>
-      <nav class="mlist"><span class="sec">記録</span><button data-m="history">過去の結果</button><button data-m="rule">ルール</button>
+      <nav class="mlist">${D.me.canRefill ? '<button data-m="refill" class="mrf">ptを補充する</button>' : ''}<span class="sec">記録</span><button data-m="history">過去の結果</button><button data-m="rule">ルール</button>
       <span class="sec" style="border-top:1px solid var(--line)">アカウント</span><button data-m="nick">ニックネームを変える</button><button data-m="pass">パスワードを変える</button></nav>
       <div style="margin-top:auto;padding:16px"><button class="btn block" data-m="logout" style="border:1.5px solid var(--red);background:#FFF;color:var(--red);font-weight:700">ログアウト</button></div></aside>`);
     $layer.querySelectorAll('[data-m]').forEach(b => b.onclick = () => {
@@ -453,6 +454,7 @@
       if (m === 'rule') return openRule();
       if (m === 'logout') return logout();
       if (m === 'history') return openHistory();
+      if (m === 'refill') return openRefill();
       S.screen = m; render();
     });
   }
@@ -477,7 +479,7 @@
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--sub)">
         <div><b style="color:var(--ink)">中止の日</b>　メニュー外を食べた日や休みの日がある週は、使ったptを全額返します。当たり・はずれは記録だけ残ります。</div>
-        <div><b style="color:var(--ink)">持ち点がなくなったら</b>　予想できなくなります。オーナーに補充をお願いしてください。</div>
+        <div><b style="color:var(--ink)">持ち点が100ptを切ったら</b>　「ptを補充する」から、豆知識クイズ（＋${fmt((S.data.me.refillPt || {}).quiz || 5000)}pt）かレビュー（＋${fmt((S.data.me.refillPt || {}).review || 15000)}pt）で補充できます。何回でも使えます。</div>
       </div></div></div>`);
   }
 
@@ -513,7 +515,111 @@
       document.getElementById('f').onsubmit = async e => { e.preventDefault(); const o = document.getElementById('p-old').value, n = document.getElementById('p-new').value; if (!/^\d{4}$/.test(n)) return document.getElementById('er').textContent = '新しいパスワードは数字4桁です'; try { await api('changePass', { oldPass: o, newPass: n }); toast('パスワードを変えました'); S.screen = null; render(); } catch (er) { document.getElementById('er').textContent = er.message; } };
       return;
     }
+    if (sc === 'refill' || sc === 'quiz' || sc === 'quizdone' || sc === 'review' || sc === 'reviewdone') return renderRefill(sc);
     S.screen = null; render();
+  }
+
+  // ---------- pt補充 ----------
+  function openRefill() {
+    if (!S.data.me.canRefill) { toast('持ち点が100pt以上あるので、いまは補充できません'); return; }
+    S.rf = { form: {} }; S.screen = 'refill'; render(); window.scrollTo(0, 0);
+  }
+  function backHome() { S.screen = null; S.rf = null; refresh().catch(() => render()); window.scrollTo(0, 0); }
+  function ptsBar(title, bal) { return `<header class="bar"><b class="sub-title">${title}</b><span class="pts">持ち点<br><b>${fmt(bal)}</b> pt</span></header>`; }
+  function doneCard(kind) {
+    const dn = S.rf.done;
+    return `<div class="rf-done ${kind}">${chefImg('smile')}<span class="l">補充しました</span><b class="p">＋${fmt(dn.pt)}pt</b><span class="c">持ち点　${fmt(dn.before)}pt → <b>${fmt(dn.balance)}pt</b></span></div>`;
+  }
+  function renderRefill(sc) {
+    const R = S.data.me.refillPt || { quiz: 5000, review: 15000 };
+    const rf = S.rf || (S.rf = { form: {} });
+    if (sc === 'refill') {
+      $app.innerHTML = subBar('ptを補充する') + `<div class="rf">
+        <h2 class="rf-h">どちらで補充しますか？</h2>
+        <button class="rfc" data-rf="quiz"><span class="t"><b>豆知識クイズ</b><span class="badge g">＋${fmt(R.quiz)}pt</span></span><span class="d">中華料理の激ムズ豆知識に3問答えます。</span><span class="tags"><span>全問はずれでも補充されます</span></span></button>
+        <button class="rfc" data-rf="review"><span class="t"><b>レビュー</b><span class="badge y">＋${fmt(R.review)}pt</span></span><span class="d">アプリやゲームの感想を書きます。いただいた声で、アプリを良くしていきます。</span><span class="tags"><span>読むのはホストだけです</span></span></button>
+      </div><div class="rf-chef">${chefImg('smile')}</div>`;
+      document.getElementById('back').onclick = () => { S.screen = null; S.rf = null; render(); };
+      $app.querySelector('[data-rf="quiz"]').onclick = startQuiz;
+      $app.querySelector('[data-rf="review"]').onclick = () => { S.rf.form = {}; S.screen = 'review'; render(); window.scrollTo(0, 0); };
+      return;
+    }
+    if (sc === 'quiz') {
+      const i = rf.i, Q = rf.qs[i], a = rf.ans[i], done = a !== undefined, ok = a === Q.answer, last = i === rf.qs.length - 1;
+      const L = 'ABCD';
+      const ch = Q.choices.map((c, k) => done
+        ? `<div class="qz-c ${k === Q.answer ? 'ok' : k === a ? 'ng' : 'dim'}"><i>${L[k]}</i><span>${esc(c)}</span>${k === Q.answer ? '<em>正解</em>' : k === a ? '<em>あなたの答え</em>' : ''}</div>`
+        : `<button class="qz-c" data-c="${k}"><i>${L[k]}</i><span>${esc(c)}</span></button>`).join('');
+      $app.innerHTML = `<header class="bar" style="justify-content:flex-start"><button class="ibtn" id="back" aria-label="やめる" style="font-size:16px">✕</button><b class="sub-title">豆知識クイズ</b><span class="qz-lv">激ムズ</span></header>
+        <div class="qz"><div class="qz-pg"><b>${i + 1}問目 / ${rf.qs.length}問</b><span class="bars">${rf.qs.map((_, k) => `<i class="${k <= i ? 'on' : ''}"></i>`).join('')}</span></div>
+        <div class="qz-q"><small>Q${i + 1}</small><p>${esc(Q.q)}</p></div>
+        <div class="qz-cs">${ch}</div>
+        ${done ? `<div class="notice cream qz-n">${chefImg(ok ? 'smile' : 'surprise')}<div><b>${ok ? '正解！' : 'ざんねん、はずれ！'}</b><span>${esc(Q.note)}</span></div></div>` : ''}</div>
+        ${done ? `<div class="pad" style="margin-top:auto"><button class="btn green block" id="qnext">${last ? '結果を見る' : '次の問題へ'}</button></div>` : ''}`;
+      document.getElementById('back').onclick = () => { S.screen = 'refill'; render(); };
+      $app.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { rf.ans[i] = Number(b.dataset.c); render(); });
+      const nx = document.getElementById('qnext');
+      if (nx) nx.onclick = async () => {
+        if (!last) { rf.i++; render(); window.scrollTo(0, 0); return; }
+        const score = rf.qs.filter((q, k) => rf.ans[k] === q.answer).length;
+        try { const before = S.data.me.balance; const r = await api('refill', { method: 'quiz', score }); rf.done = { pt: r.pt, balance: r.balance, before, score }; S.screen = 'quizdone'; render(); window.scrollTo(0, 0); } catch (e) {}
+      };
+      return;
+    }
+    if (sc === 'quizdone') {
+      const dn = rf.done;
+      $app.innerHTML = ptsBar('豆知識クイズ', dn.balance) + `<div class="qz-res"><span class="l">結果</span><b>${rf.qs.length}問中 ${dn.score}問正解</b>
+        <span class="marks">${rf.qs.map((q, k) => `<i class="${rf.ans[k] === q.answer ? 'ok' : 'ng'}">Q${k + 1}</i>`).join('')}</span></div>${doneCard('g')}
+        <div class="pad" style="margin-top:auto"><button class="btn gold block" id="home">予想にもどる</button></div>`;
+      document.getElementById('home').onclick = backHome;
+      return;
+    }
+    if (sc === 'review') {
+      const first = !S.data.me.reviewed, f = rf.form;
+      const chips = (name, list) => `<div class="chips">${list.map(v => `<label class="chip"><input type="radio" name="${name}" value="${esc(v)}" ${f[name] === v ? 'checked' : ''}><span>${esc(v)}</span></label>`).join('')}</div>`;
+      const box = (title, inner) => `<div class="rv-b"><span class="rv-t">${title}</span>${inner}</div>`;
+      const req = '<em class="req">必須</em>', opt = '<em class="opt">任意</em>';
+      const n = 1;
+      const q1 = first
+        ? box('1. 遊び方は分かりましたか？', chips('understood', ['すぐ分かった', '少し迷った', '分からなかった'])) +
+          box(`<label for="rvbody">2. 使ってみた感想や、迷ったところを教えてください${req}</label>`, `<textarea id="rvbody" rows="4">${esc(f.body || '')}</textarea><span class="cnt" id="cnt"></span>`)
+        : box('1. 書きたいことを選んでください', `<div class="chips col">${['面白かった瞬間', '面倒になった・やめたくなった瞬間', 'あったら嬉しい機能'].map(v => `<label class="chip"><input type="radio" name="topic" value="${esc(v)}" ${f.topic === v ? 'checked' : ''}><span>${esc(v)}</span></label>`).join('')}</div>
+            <label for="rvbody" class="rv-sub" id="rvlab">${esc(f.topic || '選んだこと')}を教えてください${req}</label><textarea id="rvbody" rows="4">${esc(f.body || '')}</textarea><span class="cnt" id="cnt"></span>`) +
+          box('2. 配当のバランスはどう感じますか？', chips('balance', ['低い', 'ちょうどいい', '高い']));
+      const k = first ? 3 : 3;
+      const bug = box(`${k}. 表示や動きで、おかしなところはありましたか？`, chips('bug', ['なかった', 'あった']) +
+        `<div id="bugbox" ${f.bug === 'あった' ? '' : 'hidden'}><label for="rvbug" class="rv-sub">どんなことが起きましたか？${req}</label><textarea id="rvbug" rows="3" placeholder="例：文字を大きくしたら崩れた／ボタンが反応しない／写真が出ない">${esc(f.bugText || '')}</textarea></div>`);
+      const note = box(`<label for="rvnote">${k + 1}. ホストへのひとこと${opt}</label>`, `<textarea id="rvnote" rows="3">${esc(f.note || '')}</textarea>`);
+      $app.innerHTML = subBar('レビュー') + `<div class="rv"><div class="rv-h"><b>${first ? 'はじめてのレビュー' : '遊んでみてどうでしたか？'}</b><span>${first ? '使ってみた最初の印象を教えてください。読むのはホストだけです。' : '今回書きたいことを1つ選んでください。読むのはホストだけです。'}</span></div>${q1}${bug}${note}</div>
+        <div class="dock"><div class="err" id="rverr" style="color:#FFC9C9"></div><button class="btn gold block" id="rvsend">送信して${fmt(R.review)}ptを受け取る</button></div>`;
+      document.getElementById('back').onclick = () => { S.screen = 'refill'; render(); };
+      const upd = () => {
+        $app.querySelectorAll('input[type=radio]:checked').forEach(x => f[x.name] = x.value);
+        f.body = document.getElementById('rvbody').value; f.bugText = document.getElementById('rvbug').value; f.note = document.getElementById('rvnote').value;
+        const len = f.body.trim().length, c = document.getElementById('cnt');
+        c.textContent = len + '文字（20文字以上）'; c.className = 'cnt' + (len >= 20 ? ' ok' : '');
+        document.getElementById('bugbox').hidden = f.bug !== 'あった';
+        const lab = document.getElementById('rvlab'); if (lab) lab.innerHTML = esc(f.topic || '選んだこと') + 'を教えてください' + req;
+        const ready = len >= 20 && f.bug && (f.bug !== 'あった' || f.bugText.trim()) && (first ? f.understood : f.topic && f.balance);
+        document.getElementById('rvsend').disabled = !ready;
+      };
+      $app.querySelectorAll('.rv input, .rv textarea').forEach(x => { x.oninput = upd; x.onchange = upd; });
+      upd();
+      document.getElementById('rvsend').onclick = async () => {
+        const answers = first ? { understood: f.understood, body: f.body, bug: f.bug, bugText: f.bugText, note: f.note } : { topic: f.topic, body: f.body, balance: f.balance, bug: f.bug, bugText: f.bugText, note: f.note };
+        try { const before = S.data.me.balance; const r = await api('refill', { method: 'review', answers, device: (navigator.userAgent || '').slice(0, 300) }); rf.done = { pt: r.pt, balance: r.balance, before }; S.screen = 'reviewdone'; render(); window.scrollTo(0, 0); }
+        catch (e) { document.getElementById('rverr').textContent = e.message; }
+      };
+      return;
+    }
+    if (sc === 'reviewdone') {
+      $app.innerHTML = ptsBar('レビュー', rf.done.balance) + `<div class="rv-thx"><b>ありがとうございます！</b><span>いただいた声は、アプリやゲームを<br>良くするために使わせてもらいます。</span></div>${doneCard('y')}
+        <div class="pad" style="margin-top:auto"><button class="btn gold block" id="home">予想にもどる</button></div>`;
+      document.getElementById('home').onclick = backHome;
+    }
+  }
+  async function startQuiz() {
+    try { const r = await api('quizStart'); S.rf = { qs: r.questions, pt: r.pt, i: 0, ans: [], form: {} }; S.screen = 'quiz'; render(); window.scrollTo(0, 0); } catch (e) {}
   }
 
   // ---------- ホストタブ ----------
@@ -525,8 +631,12 @@
     const H = S.host;
     if (!H) return '<div class="center"><button class="btn ghost" id="hreload">読み込み直す</button></div>';
     const w = H.week;
-    if (w && w.status === '受付中' && w.closed) return dayView(w);
-    return prepView(H);
+    const html = (w && w.status === '受付中' && w.closed) ? dayView(w) : prepView(H);
+    const rl = (H.refills || []);
+    if (!rl.length) return html;
+    const card = `<div class="pad"><div class="rfl"><b>最近7日の補充</b>${rl.map(x => { const d = new Date(x.at); return `<div><span>${d.getMonth() + 1}/${d.getDate()}</span><span class="n">${esc(x.nick)}</span><span>${esc(x.method)}</span><b>＋${fmt(x.pt)}</b></div>`; }).join('')}</div></div>`;
+    const i = html.lastIndexOf('<div class="foot"');
+    return i >= 0 ? html.slice(0, i) + card + html.slice(i) : html + card;
   }
   function steps(n) {
     const s = ['出馬表', '受付', '食べたもの'];
