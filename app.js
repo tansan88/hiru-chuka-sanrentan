@@ -544,21 +544,20 @@
   function openShare(v) {
     const blobP = window.ShareImage.blob(shareData(v));
     openLayer(`<div class="scrim" data-close></div><div class="sheet" role="dialog" aria-label="結果をシェア"><div class="grab"><span></span></div>
-      <div class="share"><img id="shimg" alt="シェア画像のプレビュー"><div class="ok" id="shok"><span class="dots" style="font-size:14px;color:var(--sub)">画像を作っています</span></div>
+      <div class="share"><img id="shimg" alt="シェア画像のプレビュー">
       <button class="btn slack block" id="slack" disabled>Slackに送る</button>
       <div class="links"><button class="lnk" data-close style="color:var(--sub)">閉じる</button></div></div></div>`);
     blobP.then(blob => {
       const url = URL.createObjectURL(blob);
       const file = new File([blob], 'hiruchuka-' + v.weekId + '.png', { type: 'image/png' });
       const im = document.getElementById('shimg'); if (im) im.src = url;
-      const okEl = document.getElementById('shok'); if (okEl) okEl.innerHTML = '画像ができました';
       const download = () => { const a = document.createElement('a'); a.href = url; a.download = file.name; document.body.appendChild(a); a.click(); a.remove(); };
       const share = async () => {
         if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file] }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
         download(); toast('画像を保存しました。Slackに貼り付けて投稿してね');
       };
       const sl = document.getElementById('slack'); if (sl) { sl.disabled = false; sl.onclick = share; }
-    }).catch(() => { const okEl = document.getElementById('shok'); if (okEl) okEl.textContent = '画像を作れませんでした'; });
+    }).catch(() => toast('画像を作れませんでした'));
   }
 
   // ---------- メニュー・ルール ----------
