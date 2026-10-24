@@ -10,6 +10,11 @@ on:
   schedule:
     - cron: '0 22 * * 4'   # 木曜22時（世界標準時）＝ 金曜7時（日本時間）
   workflow_dispatch:
+    inputs:
+      drill:
+        description: '失敗の練習（失敗のメールが届くかを確かめる）'
+        type: boolean
+        default: false
 
 jobs:
   watch:
@@ -17,7 +22,13 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      - name: 失敗の練習
+        if: inputs.drill
+        run: |
+          echo "::error::これは失敗の練習です。このメールが届いていれば、見張りの知らせは使えます"
+          exit 1
       - name: 本番に問い合わせる
+        if: ${{ !inputs.drill }}
         run: |
           DID=$(grep -E '^\s*API_URL:' config.js | grep -oE 'macros/s/[A-Za-z0-9_-]+' | head -1 | sed 's#macros/s/##')
           URL="https://script.google.com/macros/s/$DID/exec?check=health"
