@@ -1,0 +1,62 @@
+# 画面を GitHub Pages に公開する
+#   main ブランチの画面 → https://tansan88.github.io/hiru-chuka-sanrentan/
+#   test ブランチの画面 → https://tansan88.github.io/hiru-chuka-sanrentan/test/ （テスト環境につながる）
+# 使う前に一度だけ：リポジトリの Settings → Pages → Source を「GitHub Actions」にする
+name: 画面を公開
+
+on:
+  push:
+    branches: [main, test]
+    paths: ['index.html', '*.js', 'style.css', 'assets/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  actions: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # 公開の設定（github-pages 環境）は main からしか公開できないので、test への反映は main で公開し直す
+  redispatch:
+    if: github.ref_name != 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh workflow run pages.yml --ref main -R "${{ github.repository }}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+  build:
+    if: github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main, path: main }
+      - name: test ブランチを取得（無ければ main と同じにする）
+        run: git clone --depth 1 --branch test "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" testb || cp -r main testb
+      - name: 公開するファイルを集める（画面のファイルだけ。テストやサーバーのコードは出さない）
+        run: |
+          mkdir -p _site/test
+          for d in main:_site testb:_site/test; do
+            src=${d%%:*}; dst=${d#*:}
+            cp $src/index.html $src/style.css $src/app.js $src/share.js $src/wok.js $src/config.js "$dst/"
+            cp -r $src/assets "$dst/"
+          done
+          touch _site/.nojekyll
+          ls -R _site | head -40
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: _site }
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.d.outputs.page_url }}
+    steps:
+      - id: d
+        uses: actions/deploy-pages@v4
