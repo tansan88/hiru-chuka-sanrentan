@@ -540,33 +540,26 @@
     const rows = DAYS.map((d, i) => { const m = v.menus.find(x => x.waku === p.picks[d]) || { name: '—', odds: 0 }; const k = v.marks[i]; return { day: d, name: m.name, odds: m.odds, kind: k === 'hit' ? 'hit' : k === 'cancel' ? 'cancel' : 'miss' }; });
     return { title: v.title, rows, hits: v.marks.filter(k => k === 'hit').length, cancelled: v.status === '返還', bet: p.bet, net: v.settle ? v.settle.net : 0 };
   }
+  // 結果のシェア：画像を作って、共有の画面から Slack へ（送り先のチャンネルは Slack の画面で選ぶ）
   function openShare(v) {
     const blobP = window.ShareImage.blob(shareData(v));
-    let copied = Promise.resolve(false);
-    try {
-      if (navigator.clipboard && window.ClipboardItem) {
-        copied = navigator.clipboard.write([new ClipboardItem({ 'image/png': blobP })]).then(() => true, () => false);
-      }
-    } catch (e) { copied = Promise.resolve(false); }
     openLayer(`<div class="scrim" data-close></div><div class="sheet" role="dialog" aria-label="結果をシェア"><div class="grab"><span></span></div>
-      <div class="share"><img id="shimg" alt="シェア画像のプレビュー"><div class="ok" id="shok"><span class="dots" style="font-size:14px;color:var(--sub)">画像を作っています</span></div><span id="shsub" style="font-size:14px"></span>
-      <a class="btn slack" href="slack://open" id="slack" style="display:flex;align-items:center;justify-content:center;text-decoration:none">Slackを開く</a>
+      <div class="share"><img id="shimg" alt="シェア画像のプレビュー"><div class="ok" id="shok"><span class="dots" style="font-size:14px;color:var(--sub)">画像を作っています</span></div>
+      <button class="btn slack block" id="slack" disabled>Slackに送る</button>
+      <span class="pnote" style="align-self:stretch"><b>①</b> 共有の画面で Slack を選ぶ　<b>②</b> 送り先のチャンネルを選ぶ　<b>③</b> 送信</span>
       <div class="links"><button class="lnk" id="shsave">画像を保存</button><button class="lnk" data-close style="color:var(--sub)">閉じる</button></div></div></div>`);
     blobP.then(blob => {
       const url = URL.createObjectURL(blob);
+      const file = new File([blob], 'hiruchuka-' + v.weekId + '.png', { type: 'image/png' });
       const im = document.getElementById('shimg'); if (im) im.src = url;
-      const save = document.getElementById('shsave');
-      if (save) save.onclick = async () => {
-        const file = new File([blob], 'hiruchuka-' + v.weekId + '.png', { type: 'image/png' });
+      const okEl = document.getElementById('shok'); if (okEl) okEl.innerHTML = '画像ができました';
+      const download = () => { const a = document.createElement('a'); a.href = url; a.download = file.name; document.body.appendChild(a); a.click(); a.remove(); };
+      const share = async () => {
         if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file] }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
-        const a = document.createElement('a'); a.href = url; a.download = file.name; document.body.appendChild(a); a.click(); a.remove();
+        download(); toast('画像を保存しました。Slackに貼り付けて投稿してね');
       };
-      return copied;
-    }).then(ok => {
-      const okEl = document.getElementById('shok'), sub = document.getElementById('shsub');
-      if (!okEl) return;
-      if (ok) { okEl.innerHTML = '<i>✓</i>画像をコピーしました！'; sub.textContent = 'Slackに貼り付けて投稿してね'; }
-      else { okEl.innerHTML = '画像ができました'; sub.textContent = '「画像を保存」してから、Slackに貼り付けて投稿してね'; }
+      const sl = document.getElementById('slack'); if (sl) { sl.disabled = false; sl.onclick = share; }
+      const save = document.getElementById('shsave'); if (save) save.onclick = share;
     }).catch(() => { const okEl = document.getElementById('shok'); if (okEl) okEl.textContent = '画像を作れませんでした'; });
   }
 

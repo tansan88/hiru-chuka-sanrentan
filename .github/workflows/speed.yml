@@ -2,6 +2,10 @@
 name: 速さを測る
 on:
   workflow_dispatch:
+  # テストブランチでこのファイルを変えたときにも動く（手動の実行は main に入ってから使える）
+  push:
+    branches: [test]
+    paths: ['.github/workflows/speed.yml']
 jobs:
   speed:
     runs-on: ubuntu-latest
