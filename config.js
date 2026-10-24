@@ -5,5 +5,5 @@
  */
 window.CONFIG = {
   API_URL: 'https://script.google.com/macros/s/AKfycbzBV0uc8KIyJngq3hNowov8lCKUo_wLg-Ai7RFyOru7BLFwXncy8_wT7CB2r2FUj_uG_A/exec',
-  API_URL_TEST: '',
+  API_URL_TEST: 'https://script.google.com/macros/s/AKfycbx0fqIXRSN6d37vHBM5_tZdE3GvXRUavMalQFgWx_xpkFdm6nVrXtk5wCWM_qVXX4U/exec',
 };

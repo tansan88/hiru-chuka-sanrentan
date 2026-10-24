@@ -110,6 +110,11 @@ jobs:
               if [ -z "$MAIN" ] && [ "$f" != "Code.gs" ]; then MAIN="$f"; else rm -f "$f"; fi
             fi
           done
+          # 新しく作ったプロジェクトに最初からある空の「コード.gs」（myFunction だけのもの）は消す
+          for f in *.gs; do
+            [ -f "$f" ] || continue
+            if [ "$(wc -c < "$f")" -lt 200 ] && grep -q 'function myFunction' "$f"; then echo "空の初期ファイルを削除: $f"; rm -f "$f"; fi
+          done
           if [ -z "$MAIN" ]; then MAIN="Code.gs"; fi
           cp ../gas/Code.gs "$MAIN"
           # テスト環境：ウェブアプリの設定が無ければ、本番と同じ設定を入れる（自分として実行・誰でもアクセス可）
