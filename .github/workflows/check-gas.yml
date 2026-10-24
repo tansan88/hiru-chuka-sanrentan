@@ -24,4 +24,6 @@ jobs:
           clasp pull > ../pull.log 2>&1 || { sed 's/^/::error::/' ../pull.log | head; exit 1; }
           sed 's/^/::notice::pull: /' ../pull.log | head -20
           for f in $(find . -type f ! -name '.clasp.json'); do echo "::notice::ファイル: $f （$(wc -c < "$f") バイト、const SHEETS の数: $(grep -c 'const SHEETS =' "$f")）"; done
+          clasp deployments 2>&1 | sed 's/^/::notice::デプロイ: /' | head -10
+          clasp versions 2>&1 | head -6 | sed 's/^/::notice::バージョン: /'
           rm -f ~/.clasprc.json
