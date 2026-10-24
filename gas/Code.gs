@@ -20,9 +20,10 @@ const SHEETS = {
   補充: ['日時', '参加者ID', 'ニックネーム', '方法', 'pt'],
   レビュー: ['日時', '参加者ID', 'ニックネーム', '回', '遊び方', 'テーマ', '内容', '配当', '不具合', '不具合の内容', 'ひとこと', '端末'],
   クイズ: ['ID', '問題', 'A', 'B', 'C', 'D', '正解', '解説', '出典1', '出典2', '使う'],
+  エラー: ['日時', '種類', '操作', '内容', '詳しい情報'],
 };
 // あとから増えたシート（無ければ自動で作る）
-const AUTO_SHEETS = ['補充', 'レビュー', 'クイズ'];
+const AUTO_SHEETS = ['補充', 'レビュー', 'クイズ', 'エラー'];
 const DAYS = ['火', '水', '木'];
 const DEFAULT_SETTINGS = [
   ['初期持ち点', 10000, '全員が最初に持っているpt'],
@@ -35,6 +36,7 @@ const DEFAULT_SETTINGS = [
   ['写真フォルダID', '', '初期設定で自動作成'],
   ['バックアップの保存数', 8, '毎週のバックアップを何回分残すか（それより古いものはゴミ箱へ）'],
   ['バックアップフォルダID', '', '最初のバックアップで自動作成'],
+  ['エラー通知先', '', 'エラーを知らせるメールの宛先。空ならこのスクリプトを動かしている人（オーナー）'],
 ];
 const REFILL_LINE = 100; // これ未満になったら補充できる（1回に使える最小のpt）
 const REVIEW_OPT = {
@@ -76,7 +78,7 @@ function doPost(e) {
   let req = {};
   try { req = JSON.parse(e.postData.contents || '{}'); } catch (err) { return json_({ ok: false, error: '送信内容が読めませんでした' }); }
   // 読むだけの操作は順番待ちをしない（書き込みだけ1件ずつ処理する）
-  const readOnly = ['state', 'history', 'week', 'hostState'].indexOf(req.action) >= 0;
+  const readOnly = ['state', 'history', 'week', 'hostState', 'clientError'].indexOf(req.action) >= 0;
   const lock = readOnly ? null : LockService.getScriptLock();
   try {
     if (lock) lock.waitLock(20000);
@@ -89,6 +91,7 @@ function doPost(e) {
   } catch (err) {
     if (err instanceof UserError) return json_({ ok: false, error: err.message });
     console.error(err && err.stack || err);
+    reportError_('サーバー', String(req.action || ''), err && err.message || String(err), err && err.stack || '');
     return json_({ ok: false, error: 'サーバーでエラーが起きました。少し待ってからやり直してください。' });
   } finally {
     if (lock) { try { lock.releaseLock(); } catch (e2) {} }
@@ -198,6 +201,19 @@ const API = {
   },
 
   // --- ホスト ---
+  // --- 画面で起きたエラーを受け取る（ログインしていなくても送れるので、量と長さを制限する） ---
+  clientError(r) {
+    const msg = String(r.msg || '').slice(0, 300);
+    if (!msg || /^Script error\.?$/i.test(msg) || /ResizeObserver/i.test(msg)) return {};
+    const props = PropertiesService.getScriptProperties();
+    const slot = String(Math.floor(Date.now() / 600000)); // 10分ごとの枠
+    const used = props.getProperty('clientErrorSlot') === slot ? Number(props.getProperty('clientErrorCount') || 0) : 0;
+    if (used >= 30) return {}; // 10分に30件まで（それ以上は捨てる）
+    props.setProperties({ clientErrorSlot: slot, clientErrorCount: String(used + 1) });
+    const detail = ['画面: ' + String(r.page || '').slice(0, 200), '端末: ' + String(r.ua || '').slice(0, 200), String(r.detail || '').slice(0, 1500)].join('\n');
+    reportError_('画面', String(r.where || '').slice(0, 50), msg, detail);
+    return {};
+  },
   // --- pt補充（持ち点が100pt未満のとき） ---
   quizStart(r) {
     const u = auth_(r);
@@ -610,6 +626,50 @@ function quizRows_() {
   return qs;
 }
 
+// ===== エラーの記録と通知 =====
+// エラーは「エラー」シートに1件1行で残し、メールでも知らせる（メールは1時間に1通まで。その間のエラーは次のメールに件数を書く）
+// メールを送るには、最初に1回だけエディタで関数「エラー通知のテスト」を実行して許可する
+function reportError_(kind, action, message, detail) {
+  try {
+    sheet_('エラー').appendRow([new Date(), kind, txt_(String(action || '')), txt_(String(message || '').slice(0, 1000)), txt_(String(detail || '').slice(0, 3000))]);
+  } catch (e) { console.error(e); }
+  try { notifyError_(kind, action, message); } catch (e) { console.error(e); }
+}
+function notifyError_(kind, action, message, force) {
+  const props = PropertiesService.getScriptProperties();
+  const now = Date.now();
+  const last = Number(props.getProperty('lastErrorMail') || 0);
+  if (!force && now - last < 3600000) {
+    props.setProperty('suppressedErrors', String(Number(props.getProperty('suppressedErrors') || 0) + 1));
+    return false;
+  }
+  const to = String(getSetting_('エラー通知先') || '').trim() || Session.getEffectiveUser().getEmail();
+  if (!to) return false;
+  const skipped = Number(props.getProperty('suppressedErrors') || 0);
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const body = [
+    '昼中華3連単でエラーが起きました。',
+    '',
+    '日時：' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm'),
+    '場所：' + kind + (action ? '（' + action + '）' : ''),
+    '内容：' + String(message || '').slice(0, 500),
+    skipped ? '前回のメールのあとに起きたエラー：' + skipped + '件（エラーシートに記録済み）' : '',
+    '',
+    '詳しくはスプレッドシートの「エラー」シートを見てください。',
+    ss.getUrl(),
+    '',
+    '※このメールは1時間に1通までです。',
+  ].filter(x => x !== null).join('\n');
+  MailApp.sendEmail(to, '【昼中華3連単】エラーが起きました', body);
+  props.setProperties({ lastErrorMail: String(now), suppressedErrors: '0' });
+  return true;
+}
+// 最初に1回だけエディタから実行して、メール送信を許可する（テストのメールが届きます）
+function エラー通知のテスト() {
+  notifyError_('テスト', '', 'これはテストです。このメールが届いていれば、エラー通知は使えます。', true);
+  Logger.log('テストのメールを送りました');
+}
+
 // ===== バックアップ =====
 // 「バックアップを設定する」を1回だけ手で実行すると、毎週金曜の朝5時ごろに自動でバックアップを取ります。
 // すぐ1回取りたいときは「バックアップを取る」を実行します。
@@ -626,7 +686,9 @@ function バックアップを取る() {
   const r = backup_();
   Logger.log('バックアップを取りました：' + r.name + '（' + r.kept + '件を保存中、' + r.removed + '件をゴミ箱へ）');
 }
-function 定期バックアップ() { backup_(); }
+function 定期バックアップ() {
+  try { backup_(); } catch (e) { reportError_('バックアップ', '定期バックアップ', e && e.message || String(e), e && e.stack || ''); throw e; }
+}
 function backup_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let folder = null;

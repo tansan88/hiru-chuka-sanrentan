@@ -22,6 +22,25 @@
 
   const S = { token: store.get('hc_token'), data: null, tab: store.get('hc_tab') || 'yoso', screen: null, editing: false, picks: {}, bet: '', host: null, hp: null, redo: {}, photo: {}, view: null, hist: null, authMode: 'login' };
 
+  // ---------- 画面で起きたエラーをサーバーに知らせる（1回の表示で3件まで・同じ内容は1回だけ） ----------
+  const errSeen = {}; let errSent = 0;
+  function reportClientError(msg, detail, where) {
+    try {
+      if (!(window.CONFIG && CONFIG.API_URL)) return;
+      msg = String(msg || '').slice(0, 300);
+      if (!msg || errSeen[msg] || errSent >= 3 || /^Script error\.?$/i.test(msg) || /ResizeObserver/i.test(msg)) return;
+      errSeen[msg] = 1; errSent++;
+      fetch(CONFIG.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, keepalive: true,
+        body: JSON.stringify({ action: 'clientError', msg, detail: String(detail || '').slice(0, 1500), where: where || '', page: location.href.slice(0, 200), ua: (navigator.userAgent || '').slice(0, 200) }) }).catch(() => {});
+    } catch (e) {}
+  }
+  window.addEventListener('error', e => { reportClientError(e.message, (e.filename || '') + ':' + (e.lineno || '') + ':' + (e.colno || '') + '\n' + (e.error && e.error.stack || ''), 'error'); });
+  window.addEventListener('unhandledrejection', e => {
+    const r = e.reason;
+    if (r && r.fromApi) return; // 通信やサーバーのエラーは、画面にお知らせ済み・サーバーに記録済み
+    reportClientError(r && r.message || String(r), r && r.stack || '', 'promise');
+  });
+
   // ---------- 小物 ----------
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const fmt = n => Number(n || 0).toLocaleString('ja-JP');
@@ -82,6 +101,7 @@
       return res;
     } catch (e) {
       const msg = e && e.message && !/Failed to fetch|NetworkError|Load failed/i.test(e.message) ? e.message : '通信できませんでした。電波のよいところでやり直してください';
+      if (e && typeof e === 'object') e.fromApi = true;
       toast(msg); throw e;
     } finally { if (opt.loading !== false) hideLoading(); }
   }

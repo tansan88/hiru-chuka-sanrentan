@@ -1,4 +1,5 @@
-# gas/Code.gs を GitHub に反映したら、Apps Script を自動で更新して新しいバージョンをデプロイする
+# gas/Code.gs を GitHub に反映したら、テストを走らせ、通ったときだけ Apps Script を更新して新しいバージョンをデプロイする
+# コミットメッセージに [push-only] と書くと、Apps Script にコードを入れるだけでデプロイはしない（新しい許可が必要な変更のとき用）
 # 必要なシークレット（Settings → Secrets and variables → Actions）
 #   CLASPRC_JSON … clasp login でできた .clasprc.json の中身
 #   SCRIPT_ID    … Apps Script の「プロジェクトの設定」にあるスクリプトID
@@ -8,7 +9,7 @@ name: Apps Script を更新
 on:
   push:
     branches: [main]
-    paths: ['gas/**', '.github/workflows/deploy-gas.yml']
+    paths: ['gas/**', 'test/**', '.github/workflows/deploy-gas.yml']
   workflow_dispatch:
 
 concurrency:
@@ -16,7 +17,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: テストを実行
+        run: node test/run.js
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -67,12 +80,17 @@ jobs:
           cp ../gas/Code.gs Code.gs
           ls -la
 
-      - name: Apps Script に反映して、新しいバージョンをデプロイ
+      - name: Apps Script にコードを反映
         if: steps.check.outputs.ready == 'true'
         run: |
           cd work
           clasp push --force > ../push.log 2>&1 || { sed 's/^/::error::clasp push: /' ../push.log | head -20; exit 1; }
           cat ../push.log
+
+      - name: 新しいバージョンをデプロイ
+        if: steps.check.outputs.ready == 'true' && !contains(github.event.head_commit.message, '[push-only]')
+        run: |
+          cd work
           clasp deploy --deploymentId "${{ steps.check.outputs.deployment_id }}" --description "GitHub ${GITHUB_SHA::7}"
           echo "### Apps Script を更新しました（${GITHUB_SHA::7}）" >> "$GITHUB_STEP_SUMMARY"
 
