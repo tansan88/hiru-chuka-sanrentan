@@ -95,29 +95,39 @@
     if (stopWok) { stopWok(); stopWok = null; }
     document.querySelectorAll('.loading').forEach(e => e.remove());
   }
+  // 通信が切れたとき、自動でもう1回だけ送ってよい操作（2回届いても結果が同じになるもの）
+  // iPhone は、カメラや Slack から戻った直後の1回目の通信が失敗しやすい
+  const RETRY_OK = ['state', 'history', 'week', 'hostState', 'predict', 'saveWeek', 'registerDay', 'saveRegulars', 'testCloseNow', 'readMenu', 'quizStart'];
+  const isNetErr = e => !e || !e.message || /Failed to fetch|NetworkError|Load failed|network connection was lost|JSON|Unexpected/i.test(e.message);
   async function api(action, body, opt) {
     opt = opt || {};
     const req = Object.assign({ action, token: S.token, v: APP_VERSION }, body || {});
     if (opt.loading !== false) showLoading();
     try {
       let res;
-      {
-        if (NO_API) throw new Error('config.js に Apps Script のURLを設定してください');
-        const r = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(req), redirect: 'follow' });
-        res = await r.json();
+      if (NO_API) throw new Error('config.js に Apps Script のURLを設定してください');
+      const send = async () => { const r = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(req), redirect: 'follow' }); return r.json(); };
+      try { res = await send(); }
+      catch (e1) {
+        if (!(isNetErr(e1) && RETRY_OK.indexOf(action) >= 0)) throw e1;
+        await new Promise(r => setTimeout(r, 1200));
+        res = await send();
       }
       if (!res.ok) {
         if (res.reload) { showReload(); const e = new Error(res.error || ''); e.silent = true; throw e; }
         if (/ログインしてください$/.test(res.error || '')) { logout(true); }
-        throw new Error(res.error || 'うまくいきませんでした');
+        const se = new Error(res.error || 'うまくいきませんでした'); se.server = true; throw se;
       }
       return res;
     } catch (e) {
-      const msg = e && e.message && !/Failed to fetch|NetworkError|Load failed/i.test(e.message) ? e.message : '通信できませんでした。電波のよいところでやり直してください';
-      if (e && typeof e === 'object') e.fromApi = true;
-      if (!(e && e.silent)) toast(msg); throw e;
+      const net = !(e && e.silent) && isNetErr(e) && !(e && e.server);
+      const msg = !net && e && e.message ? e.message : '通信できませんでした。電波のよいところでやり直してください';
+      if (e && typeof e === 'object') { e.fromApi = true; e.network = net; }
+      if (!(e && e.silent) && !opt.quiet) toast(msg); throw e;
     } finally { if (opt.loading !== false) hideLoading(); }
   }
+  // いくつかの通信をひと続きで行うあいだ、読み込み中の画面（中華鍋）を途切れさせない
+  async function busy(fn) { showLoading(); try { return await fn(); } finally { hideLoading(); } }
   async function refresh(opt) {
     S.data = await api('state', {}, opt);
     render();
@@ -462,7 +472,7 @@
     try { if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {}); } catch (e) {}
     const file = photoFile(ph, 'hiruchuka.jpg');
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ files: [file], text }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+      try { await navigator.share({ files: [file] }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
     }
     const url = URL.createObjectURL(file), a = document.createElement('a'); a.href = url; a.download = file.name; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 4000);
@@ -473,7 +483,7 @@
       <div class="sh"><h2>Slackに送る</h2><button class="xbtn" data-close aria-label="閉じる">✕</button></div>
       <div class="post-sheet"><img src="${photoSrc(ph)}" alt="撮った写真"><div class="ptxt">${esc(name)} <span>${HIRU_STAMP}</span></div>
       <button class="btn slack block" id="psend">Slackに送る</button>
-      <span class="pnote">共有の画面で Slack を選び、送り先のチャンネルを選んでください。文字が入っていないときは、メッセージ欄に貼り付けてください（コピー済みです）。</span>
+      <span class="pnote"><b>①</b> 共有の画面で Slack を選び、送り先のチャンネルを選ぶ<br><b>②</b> メッセージ欄を長押しして「ペースト」（上の文字はコピー済み）<br><b>③</b> 送信</span>
       <button class="lnk" data-close style="color:var(--sub)">閉じる</button></div></div>`);
     document.getElementById('psend').onclick = () => sharePost(ph, name);
   }
@@ -489,9 +499,9 @@
         ${P.ph ? `<div class="post-img"><img src="${photoSrc(P.ph)}" alt="撮った写真"></div><div class="post-re"><button class="lnk" id="pcam">撮り直す</button><button class="lnk" id="palb">アルバムから選ぶ</button></div>`
           : `<button class="post-shoot" id="pcam">${CAM_ICON}<b>写真を撮る</b><span>カメラが開きます</span></button><button class="lnk" id="palb" style="align-self:center">アルバムから選ぶ</button>`}
         <label class="field"><span>メニュー名</span><input id="pname" maxlength="40" value="${esc(P.name)}" placeholder="例：麻婆豆腐" enterkeyhint="done"></label>
-        <div class="post-prev"><small>Slackに入る文字</small><span id="pprev">${esc(P.name.trim() || 'メニュー名')} ${HIRU_STAMP}</span></div>
+        <div class="post-prev"><small>Slackに貼り付ける文字</small><span id="pprev">${esc(P.name.trim() || 'メニュー名')} ${HIRU_STAMP}</span></div>
         <button class="btn slack block" id="psend" ${ready ? '' : 'disabled'}>Slackに送る</button>
-        <span class="pnote">共有の画面で Slack を選び、送り先のチャンネルを選びます。この画面で作った投稿は、アプリには記録されません。</span>
+        <span class="pnote"><b>①</b> 共有の画面で Slack を選び、送り先のチャンネルを選ぶ<br><b>②</b> メッセージ欄を長押しして「ペースト」（文字はコピー済み）<br><b>③</b> 送信<br>この画面で作った投稿は、アプリには記録されません。</span>
         <div class="post-foot"><span>ホーム画面に追加すると、すぐ開けます（共有ボタン →「ホーム画面に追加」）</span><a class="lnk" href="${esc(appUrl())}">昼中華3連単を開く ›</a></div>
       </div>`;
     const take = cam => picker.open(cam, ph => { P.ph = ph; render(); });
@@ -895,13 +905,13 @@
       const menus = hp.menus.filter(m => m.name.trim());
       if (menus.length < 2) return er.textContent = 'メニューを2品以上入れてください';
       if (publish && !(w && w.status === '受付中') && !confirm('出馬表を公開します。みんなが予想できるようになります。')) return;
-      try {
+      try { await busy(async () => {
         await api('saveWeek', { weekId: hp.weekId, raceName: hp.raceName, mumble: hp.mumble, deadline: new Date(hp.deadline).toISOString(), menus: menus.map(m => ({ waku: m.waku, name: m.name.trim() })), publish: publish || (w && w.status === '受付中') });
         toast(publish ? (w && w.status === '受付中' ? '保存しました' : '出馬表を公開しました') : '下書きを保存しました');
         S.data = await api('state', {}, { loading: false });
         S.hp = null; // 保存した内容（枠の詰め直しなど）をサーバーから読み直す
         await loadHost();
-      } catch (e) { er.textContent = e.message; }
+      }); } catch (e) { er.textContent = e.message; }
     };
     const ocr = document.getElementById('hocr');
     if (ocr) ocr.onclick = () => picker.open(false, async img => {
@@ -934,7 +944,7 @@
     const tc = document.getElementById('htclose');
     if (tc) tc.onclick = async () => {
       if (!confirm('締切を今にします（テスト環境だけ）。このあとは予想できなくなり、食べたものの登録に進みます。')) return;
-      try { await api('testCloseNow', { weekId: w.weekId }); toast('締切を今にしました'); S.data = await api('state', {}, { loading: false }); await loadHost(); } catch (e) {}
+      try { await busy(async () => { await api('testCloseNow', { weekId: w.weekId }); S.data = await api('state', {}, { loading: false }); await loadHost(); }); toast('締切を今にしました'); } catch (e) {}
     };
     const dr = document.getElementById('hdraft'); if (dr) dr.onclick = () => save(false);
     document.getElementById('hpub').onclick = () => save(true);
@@ -960,13 +970,22 @@
       const m = w.menus.find(x => x.waku === wk);
       const other = m && m.name === OTHER_NAME ? String(S.dayOther[next] || '').trim() : '';
       if (m && m.name === OTHER_NAME && !other) { toast('実際に食べた料理名を入れてください'); const o = document.getElementById('dother'); if (o) o.focus(); return; }
+      const day = next;
       try {
-        await api('registerDay', { weekId: w.weekId, day: next, waku: wk, photo: ph, otherName: other });
-        const day = next;
-        delete S.redo[day]; delete S.photo[day]; delete S.daySel[day]; delete S.dayOther[day];
+        await busy(async () => {
+          try { await api('registerDay', { weekId: w.weekId, day, waku: wk, photo: ph, otherName: other }, { loading: false, quiet: true }); }
+          catch (e) {
+            // 返事が届かなかっただけで、サーバーには登録できていることがある。読み直して確かめる
+            if (!e.network) { toast(e.message); throw e; }
+            const h = await api('hostState', {}, { loading: false });
+            const got = h.week && h.week.results && h.week.results[day];
+            if (!(got && got.waku === wk && (!ph || got.photo))) { toast('通信できませんでした。電波のよいところでやり直してください'); throw e; }
+          }
+          delete S.redo[day]; delete S.photo[day]; delete S.daySel[day]; delete S.dayOther[day];
+          S.data = await api('state', {}, { loading: false });
+          await loadHost();
+        });
         toast(day + '曜を' + (wk === 0 ? '中止にしました' : '発表しました'));
-        S.data = await api('state', {}, { loading: false });
-        await loadHost();
         if (ph) openSlackSheet(ph, other || m.name); // 発表したら、そのまま Slack へ送れるようにする
       } catch (e) {}
     };
@@ -977,7 +996,7 @@
     const st = document.getElementById('settle');
     if (st) st.onclick = async () => {
       if (!confirm('結果を確定します。確定するとptが計算され、元に戻せません。')) return;
-      try { const r = await api('settle', { weekId: w.weekId }); toast(r.status === '返還' ? '確定しました（全額返還）' : '結果を確定しました'); S.data = await api('state', {}, { loading: false }); await loadHost(); } catch (e) {}
+      try { const r = await busy(async () => { const x = await api('settle', { weekId: w.weekId }); S.data = await api('state', {}, { loading: false }); await loadHost(); return x; }); toast(r.status === '返還' ? '確定しました（全額返還）' : '結果を確定しました'); } catch (e) {}
     };
   }
   function shrink(file, maxSize, quality) {
