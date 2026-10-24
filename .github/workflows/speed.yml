@@ -1,6 +1,6 @@
 # テスト環境の速さを測る（手動で実行）。全体の時間と、サーバーの中でかかった時間（ms）を並べる
 name: 速さを測る
-# 4回目：内訳を出す
+# 5回目：内訳を出す
 on:
   workflow_dispatch:
   # テストブランチでこのファイルを変えたときにも動く（手動の実行は main に入ってから使える）
@@ -18,16 +18,11 @@ jobs:
           DID=$(grep 'API_URL_TEST' config.js | grep -oE 'macros/s/[A-Za-z0-9_-]+' | head -1 | sed 's#macros/s/##')
           URL="https://script.google.com/macros/s/$DID/exec"
           V=$(grep -oE 'APP_VERSION = [0-9]+' app.js | grep -oE '[0-9]+$')
-          t() { local s=$(date +%s%3N); local b=$(curl -sL -m 60 -H 'Content-Type: text/plain;charset=utf-8' ${2:+--data "$2"} "$URL$3"); local e=$(date +%s%3N); echo "$1 全体 $((e-s))ms / サーバー内 $(echo "$b" | jq -r '.ms // "-"' 2>/dev/null)ms / $(echo "$b" | jq -r '.prof // ""' 2>/dev/null)" | tee -a $GITHUB_STEP_SUMMARY; LAST="$b"; }
+          t() { local s=$(date +%s%3N); local b=$(curl -sL -m 60 -H 'Content-Type: text/plain;charset=utf-8' ${2:+--data "$2"} "$URL$3"); local e=$(date +%s%3N); echo "::notice::$1 全体 $((e-s))ms / サーバー内 $(echo "$b" | jq -r '.ms // "-"' 2>/dev/null)ms / $(echo "$b" | jq -r '.prof // ""' 2>/dev/null)" | tee -a $GITHUB_STEP_SUMMARY; LAST="$b"; }
           t "doGet（1回目）" "" ""
-          t "doGet（2回目）" "" ""
-          t "doGet（3回目）" "" ""
-          NICK="ci$(date -u +%m%d%H%M)$((RANDOM % 1000))"; PASS=$(printf '%04d' $((RANDOM % 10000)))
+                              NICK="ci$(date -u +%m%d%H%M)$((RANDOM % 1000))"; PASS=$(printf '%04d' $((RANDOM % 10000)))
           t "register" "{\"action\":\"register\",\"nick\":\"$NICK\",\"pass\":\"$PASS\",\"v\":$V}"
           T=$(echo "$LAST" | jq -r '.token')
-          for i in 1 2 3; do t "login $i" "{\"action\":\"login\",\"nick\":\"$NICK\",\"pass\":\"$PASS\",\"v\":$V}"; done
-          for i in 1 2 3 4 5 6; do t "state $i" "{\"action\":\"state\",\"token\":\"$T\",\"v\":$V}"; done
-          for i in 1 2; do t "history $i" "{\"action\":\"history\",\"token\":\"$T\",\"v\":$V}"; done
-          for i in 1 2; do t "clientError(空) $i" "{\"action\":\"clientError\",\"msg\":\"\",\"v\":$V}"; done
-          # リダイレクトの内訳（1回目の POST と、2回目の取りに行く分）
-          curl -s -o /dev/null -w "::notice::リダイレクト内訳 1回目 %{time_total}s\n" -H 'Content-Type: text/plain;charset=utf-8' --data "{\"action\":\"state\",\"token\":\"$T\",\"v\":$V}" "$URL"
+          for i in 1 2; do t "login $i" "{\"action\":\"login\",\"nick\":\"$NICK\",\"pass\":\"$PASS\",\"v\":$V}"; done
+          for i in 1 2 3 4 5; do t "state $i" "{\"action\":\"state\",\"token\":\"$T\",\"v\":$V}"; done
+          for i in 1; do t "history $i" "{\"action\":\"history\",\"token\":\"$T\",\"v\":$V}"; done
