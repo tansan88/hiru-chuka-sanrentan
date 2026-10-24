@@ -65,15 +65,21 @@ const G = {
   DriveApp: (() => { const folders = {}; let n = 0, clock = 0;
     const mkFolder = name => { const id = 'bf' + (++n); const fl = { id, name, files: [], getId: () => id, createFile: b => { const fid = 'f' + Object.keys(files).length; files[fid] = b; return { getId: () => fid, setSharing() {} }; }, getFiles() { let i = 0; const a = fl.files; return { hasNext: () => i < a.length, next: () => a[i++] }; } }; folders[id] = fl; return fl; };
     const api = { Access: { ANYONE_WITH_LINK: 1 }, Permission: { VIEW: 1 }, createFolder: name => mkFolder(name), getFolderById: id => { if (!folders[id]) throw new Error('no folder ' + id); return folders[id]; },
-      getFileById: id => ({ makeCopy: (name, folder) => { const f = { name, created: new Date(Date.now() + (clock++) * 1000), trashed: false, getName() { return this.name; }, getDateCreated() { return this.created; }, isTrashed() { return this.trashed; }, setTrashed(v) { this.trashed = v; } }; folder.files.push(f); return f; } }),
+      trashed: [],
+      getFileById: id => ({ setTrashed(v) { if (v) api.trashed.push(id); }, makeCopy: (name, folder) => { const f = { name, created: new Date(Date.now() + (clock++) * 1000), trashed: false, getName() { return this.name; }, getDateCreated() { return this.created; }, isTrashed() { return this.trashed; }, setTrashed(v) { this.trashed = v; } }; folder.files.push(f); return f; } }),
       _folders: folders };
     return api; })(),
   ScriptApp: (() => { const triggers = []; const b = { timeBased() { return b; }, onWeekDay(d) { b.d = d; return b; }, atHour(h) { b.h = h; return b; }, create() { triggers.push({ fn: b.fn, d: b.d, h: b.h, getHandlerFunction() { return this.fn; } }); } };
     return { WeekDay: { FRIDAY: 'FRIDAY' }, getProjectTriggers: () => triggers.slice(), deleteTrigger: t => triggers.splice(triggers.indexOf(t), 1), newTrigger: fn => { b.fn = fn; return b; }, _t: triggers }; })(),
   console,
+  // Drive API（詳細サービス）の真似：文字認識の結果は Drive._text で決める
+  Drive: { _text: '', _fail: null, _n: 0, Files: {
+    create(meta, blob, opt) { if (G.Drive._fail) throw new Error(G.Drive._fail); G.Drive._last = { meta, blob, opt }; return { id: 'ocr' + (++G.Drive._n) }; },
+    export(id, mime) { return { getDataAsString: () => G.Drive._text }; },
+  } },
 };
 module.exports = codePath => {
   const code = fs.readFileSync(codePath, 'utf8');
-  const ctx = new Function(...Object.keys(G), code + '\n;return { doPost, doGet, lastBackupAt_, 初期設定, API, SHEETS, バックアップを設定する, バックアップを取る, 定期バックアップ, エラー通知のテスト, ログインロックを解除する, reportError_, __reset: () => { SETTINGS_ = null; } };')(...Object.values(G));
+  const ctx = new Function(...Object.keys(G), code + '\n;return { doPost, doGet, lastBackupAt_, 初期設定, API, SHEETS, バックアップを設定する, バックアップを取る, 定期バックアップ, エラー通知のテスト, ログインロックを解除する, reportError_, parseMenuText_, __reset: () => { SETTINGS_ = null; } };')(...Object.values(G));
   return { ctx, SS, files, coerce, G };
 };

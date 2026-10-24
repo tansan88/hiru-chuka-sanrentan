@@ -39,7 +39,12 @@ const DEFAULT_SETTINGS = [
   ['バックアップの保存数', 8, '毎週のバックアップを何回分残すか（それより古いものはゴミ箱へ）'],
   ['バックアップフォルダID', '', '最初のバックアップで自動作成'],
   ['エラー通知先', '', 'エラーを知らせるメールの宛先。空ならこのスクリプトを動かしている人（オーナー）'],
+  ['いつものメニュー1', '', '新しい週の出馬表の6番に自動で入るメニュー（ホストタブからも変えられる）'],
+  ['いつものメニュー2', '', '新しい週の出馬表の7番に自動で入るメニュー'],
 ];
+// 出馬表の「その他」：結果を登録するときに、実際に食べた料理名を入れる
+const OTHER_NAME = 'その他';
+const REGULAR_KEYS = ['いつものメニュー1', 'いつものメニュー2'];
 const REFILL_LINE = 100; // これ未満になったら補充できる（1回に使える最小のpt）
 const REVIEW_OPT = {
   understood: ['すぐ分かった', '少し迷った', '分からなかった'],
@@ -91,7 +96,8 @@ function doPost(e) {
   try { req = JSON.parse(e.postData.contents || '{}'); } catch (err) { return json_({ ok: false, error: '送信内容が読めませんでした' }); }
   if (req.action !== 'clientError' && (Number(req.v) || 0) < MIN_APP_VERSION) return json_({ ok: false, reload: true, error: 'アプリが新しくなりました。画面を開き直してください' });
   // 読むだけの操作は順番待ちをしない（書き込みだけ1件ずつ処理する）
-  const readOnly = ['state', 'history', 'week', 'hostState', 'clientError'].indexOf(req.action) >= 0;
+  // readMenu は文字認識に数秒かかるが、シートには書かないので順番待ちをしない
+  const readOnly = ['state', 'history', 'week', 'hostState', 'clientError', 'readMenu'].indexOf(req.action) >= 0;
   const lock = readOnly ? null : LockService.getScriptLock();
   try {
     if (lock) lock.waitLock(20000);
@@ -300,7 +306,7 @@ const API = {
     const u = authHost_(r);
     const db = load_();
     const w = db.weeks.filter(x => x.状態 === '下書き' || x.状態 === '受付中').sort(byWeekDesc_)[0];
-    const out = { odds: oddsTable_(), suggest: suggestNextWeek_(db), raceNames: raceNames_(db), rounds: {} };
+    const out = { odds: oddsTable_(), suggest: suggestNextWeek_(db), raceNames: raceNames_(db), rounds: {}, regulars: regulars_(), test: !!envSuffix_() };
     const names = out.raceNames.length ? out.raceNames : ['昼中華ステークス'];
     names.forEach(n => out.rounds[n] = roundFor_(db, n, w ? w.週ID : out.suggest));
     if (w) {
@@ -360,6 +366,51 @@ const API = {
     log_(u.id, u.nick, r.publish ? '出馬表公開' : '下書き保存', raceName + ' ' + weekId);
     return {};
   },
+  // いつものメニュー（新しい週の出馬表の6・7番に自動で入る）
+  saveRegulars(r) {
+    const u = authHost_(r);
+    const names = (Array.isArray(r.names) ? r.names : []).slice(0, REGULAR_KEYS.length).map(s => String(s || '').trim());
+    names.forEach(s => { if (s.length > 30) fail_('メニュー名は30文字までです'); if (s === OTHER_NAME) fail_('「' + OTHER_NAME + '」はいつものメニューにできません'); });
+    REGULAR_KEYS.forEach((k, i) => setSetting_(k, txt_(names[i] || '')));
+    log_(u.id, u.nick, 'いつものメニュー', names.filter(Boolean).join(' / ') || '（なし）');
+    return { regulars: regulars_() };
+  },
+  // テスト環境だけ：締切を今にして、食べたものの登録を試せるようにする（本番では使えない）
+  testCloseNow(r) {
+    const u = authHost_(r);
+    if (!envSuffix_()) fail_('テスト環境だけで使える操作です');
+    const db = load_();
+    const w = db.weeks.find(x => x.週ID === r.weekId);
+    if (!w || w.状態 !== '受付中') fail_('公開中の週がありません');
+    sheet_('週').getRange(w._row, SHEETS.週.indexOf('締切') + 1).setValue(new Date(Date.now() - 1000));
+    log_(u.id, u.nick, '締切を今にする（テスト環境）', w.週ID);
+    return {};
+  },
+  // 出馬表のスクショ（エアレジのメニュー画面など）から、「1.」〜「5.」で始まるメニュー名を読み取る
+  // Google ドライブの文字認識を使う（Apps Script の「Drive API」を有効にしておく。読み取りに使ったファイルはすぐゴミ箱へ）
+  readMenu(r) {
+    authHost_(r);
+    const data = r.image && String(r.image.data || '');
+    if (!data) fail_('画像を選んでください');
+    if (data.length > 10 * 1024 * 1024) fail_('画像が大きすぎます');
+    if (typeof Drive === 'undefined' || !Drive.Files) fail_('読み取りの準備ができていません（Apps Script の Drive API が有効になっていません）');
+    const blob = Utilities.newBlob(Utilities.base64Decode(data), String(r.image.mime || 'image/jpeg'), 'menu.jpg');
+    let id = '';
+    try {
+      const f = Drive.Files.create({ name: '昼中華3連単_読み取り中' + envSuffix_(), mimeType: 'application/vnd.google-apps.document' }, blob, { ocrLanguage: 'ja', fields: 'id' });
+      id = f && f.id;
+      if (!id) throw new Error('文字認識のファイルを作れませんでした');
+      const text = ocrText_(id);
+      const names = parseMenuText_(text);
+      return { names, found: names.filter(Boolean).length };
+    } catch (e) {
+      if (e instanceof UserError) throw e;
+      reportError_('サーバー', 'readMenu', 'スクショを読み取れませんでした：' + (e && e.message || e), e && e.stack || '');
+      fail_('スクショを読み取れませんでした。メニュー名を手で入れてください');
+    } finally {
+      if (id) { try { DriveApp.getFileById(id).setTrashed(true); } catch (e2) {} }
+    }
+  },
   registerDay(r) {
     const u = authHost_(r);
     const db = load_();
@@ -373,6 +424,11 @@ const API = {
       const m = db.menus.find(x => x.週ID === w.週ID && Number(x.枠) === waku);
       if (!m) fail_('メニューを選んでください');
       name = m.品名;
+      if (String(m.品名) === OTHER_NAME) {
+        name = String(r.otherName || '').trim();
+        if (!name) fail_('「' + OTHER_NAME + '」のときは、実際に食べた料理名を入れてください');
+        if (name.length > 30) fail_('料理名は30文字までです');
+      }
     }
     let photoId = '';
     if (r.photo && r.photo.data) {
@@ -454,7 +510,8 @@ function weekView_(w, u, db, withSettle) {
 function resultsOf_(db, weekId) {
   const out = {};
   db.results.filter(x => x.週ID === weekId).forEach(x => {
-    out[x.曜日] = { waku: Number(x.枠), name: x.品名, photo: x.写真ID ? 'https://drive.google.com/thumbnail?id=' + x.写真ID + '&sz=w1000' : '' };
+    const m = db.menus.find(y => y.週ID === weekId && Number(y.枠) === Number(x.枠));
+    out[x.曜日] = { waku: Number(x.枠), name: String(x.品名), photo: x.写真ID ? 'https://drive.google.com/thumbnail?id=' + x.写真ID + '&sz=w1000' : '', other: !!m && String(m.品名) === OTHER_NAME };
   });
   return out;
 }
@@ -660,6 +717,33 @@ function setSetting_(key, val) {
   if (i >= 0) sh.getRange(i + 2, 2).setValue(val); else sh.appendRow([key, val, '']);
   SETTINGS_ = null;
 }
+// いつものメニュー（空のものは除く）
+function regulars_() { return REGULAR_KEYS.map(k => String(getSetting_(k) || '').trim()); }
+// 文字認識した Google ドキュメントの文字を取り出す
+function ocrText_(id) {
+  let out = Drive.Files.export(id, 'text/plain', { alt: 'media' });
+  if (out && typeof out.getDataAsString === 'function') out = out.getDataAsString('UTF-8');
+  else if (out && typeof out !== 'string' && out.length !== undefined) out = Utilities.newBlob(out).getDataAsString('UTF-8');
+  out = String(out || '');
+  if (!out.trim()) throw new Error('文字を取り出せませんでした（' + typeof out + '）');
+  return out;
+}
+// 読み取った文字から「1.」〜「5.」で始まる行を拾い、メニュー名にする（値段や番号のない行は無視）
+function parseMenuText_(text) {
+  const out = ['', '', '', '', ''];
+  String(text || '').replace(/\r/g, '').split('\n').forEach(line => {
+    const s = line.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).replace(/^[\s\uFEFF]+/, '').trim();
+    const m = s.match(/^([1-5])\s*[.．。,，、:：)）]\s*(.+)$/);
+    if (!m) return;
+    const i = Number(m[1]) - 1;
+    if (out[i]) return;
+    let name = m[2].replace(/\s*[¥￥]\s*[\d,，]+.*$/, '').replace(/\s*[\d,，]+\s*円.*$/, '').trim();
+    name = name.replace(/([^\x00-\x7F])\s+(?=[^\x00-\x7F])/g, '$1');
+    if (name) out[i] = name.slice(0, 30);
+  });
+  return out;
+}
+
 // ===== パスワードの回数ロック =====
 // 同じニックネームで続けて5回まちがえると、15分間ログインできなくなります（正しいパスワードでも不可）。
 // まちがいの回数は、最後のまちがいから15分たつか、ログインに成功すると0に戻ります。

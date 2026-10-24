@@ -19,6 +19,11 @@
   const ENV_TEST = /\/test\//.test(location.pathname) || /[?&]env=test(&|$)/.test(location.search);
   const API_URL = window.CONFIG ? (ENV_TEST ? CONFIG.API_URL_TEST : CONFIG.API_URL) || '' : '';
   const NO_API = !API_URL;
+  // ?post を付けて開くと「Slackへの投稿をつくる」だけの画面（ログイン不要・アプリには何も記録しない）
+  const POST_MODE = /[?&]post(=|&|$)/.test(location.search);
+  const HIRU_STAMP = ':hirucyuuka:';
+  const OTHER_NAME = 'その他';
+  const CAM_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13.5" r="3.6" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
 
   // ---------- 保存（使えないブラウザでも動くように） ----------
   const store = {
@@ -27,7 +32,7 @@
     set(k, v) { try { v == null ? localStorage.removeItem(store.key(k)) : localStorage.setItem(store.key(k), v); } catch (e) {} },
   };
 
-  const S = { token: store.get('hc_token'), data: null, tab: store.get('hc_tab') || 'yoso', screen: null, editing: false, picks: {}, bet: '', host: null, hp: null, redo: {}, photo: {}, view: null, hist: null, authMode: 'login' };
+  const S = { post: { ph: null, name: '' }, dayOther: {}, token: store.get('hc_token'), data: null, tab: store.get('hc_tab') || 'yoso', screen: null, editing: false, picks: {}, bet: '', host: null, hp: null, redo: {}, photo: {}, view: null, hist: null, authMode: 'login' };
 
   // ---------- 画面で起きたエラーをサーバーに知らせる（1回の表示で3件まで・同じ内容は1回だけ） ----------
   const errSeen = {}; let errSent = 0;
@@ -125,6 +130,7 @@
 
   // ---------- 描画の入口 ----------
   function render() {
+    if (POST_MODE) return renderPost();
     if (!S.token) return renderAuth();
     if (!S.data) { $app.innerHTML = ''; return; }
     if (S.screen) return renderSub();
@@ -386,7 +392,7 @@
         const k = v.marks[i];
         if (k === 'cancel') return `<div class="r"><b>${d}</b><span class="m cancel">−</span><span style="color:var(--sub)">中止</span><span class="v">—</span></div>`;
         const val = cancelled ? '<span class="v">—</span>' : k === 'hit' ? `<span class="v plus">+${fmt(st ? st.daily[d] : 0)}</span>` : '<span class="v">0</span>';
-        return `<div class="r"><b>${d}</b><span class="m ${k === 'hit' ? 'hit' : 'miss'}">${k === 'hit' ? '✓' : '×'}</span><span style="${k === 'hit' ? '' : 'color:var(--sub)'}">${esc(m.name)} <small>${oddsTxt(m.odds)}倍</small></span>${val}</div>`;
+        return `<div class="r"><b>${d}</b><span class="m ${k === 'hit' ? 'hit' : 'miss'}">${k === 'hit' ? '✓' : '×'}</span><span style="${k === 'hit' ? '' : 'color:var(--sub)'}">${esc(m.name === OTHER_NAME && res[d] && res[d].other ? m.name + '（' + res[d].name + '）' : m.name)} <small>${oddsTxt(m.odds)}倍</small></span>${val}</div>`;
       }).join('');
       const tv = cancelled ? '<span class="v">不成立</span>' : triple ? `<span class="v big">+${fmt(st.triple)}</span>` : '<span class="v">0</span>';
       brk = `<div class="brk"><span class="h">内訳</span>${rows}<div class="r t ${triple ? 'win' : ''}"><span>${triple ? '<b>3連単</b>' : '3連単'}</span>${tv}</div></div>`;
@@ -396,7 +402,8 @@
       if (!r) return `<div><div class="im">${BOWL('#C9D3CC').replace('<svg', '<svg width="30" height="30"')}</div><span class="cap"><b>${d}</b> —</span></div>`;
       if (r.waku === 0) return `<div><div class="im cx">中止</div><span class="cap"><b>${d}</b> <span style="color:var(--sub)">メニュー外</span></span></div>`;
       const im = r.photo ? `<img src="${esc(r.photo)}" alt="${d}曜の${esc(r.name)}" loading="lazy" referrerpolicy="no-referrer">` : BOWL('#C9D3CC').replace('<svg', '<svg width="30" height="30"');
-      return `<div><div class="im">${im}</div><span class="cap"><b>${d}</b> ${esc(r.name)}</span></div>`;
+      const cap = `<span class="cap"><b>${d}</b> ${esc(r.name)}</span>`;
+      return r.photo ? `<button class="ph" data-zoom="${d}" aria-label="${d}曜の${esc(r.name)}の写真を拡大"><div class="im">${im}</div>${cap}</button>` : `<div><div class="im">${im}</div>${cap}</div>`;
     }).join('') + '</div>';
     const share = p ? `<div class="pad"><button class="btn gold block" id="share" style="display:flex;align-items:center;justify-content:center;gap:8px">${SHARE_ICON}結果をシェア</button></div>` : '';
     return head + sum + brk + photos + share;
@@ -405,6 +412,94 @@
     $app.querySelectorAll('[data-go]').forEach(b => b.onclick = () => switchTab(b.dataset.go));
     const sb = document.getElementById('share');
     if (sb && v) sb.onclick = () => openShare(v);
+    if (v) bindZoom(v.results);
+  }
+  // 写真の拡大：結果（火・水・木）のうち写真がある日を並べる。タップで閉じる・左右にスワイプで切り替え
+  function zoomList(res) {
+    return DAYS.filter(d => res[d] && res[d].photo).map(d => ({ day: d, src: res[d].photo.replace(/sz=w\d+/, 'sz=w2000'), cap: `<b>${d}曜</b> ${esc(res[d].name)}` }));
+  }
+  function bindZoom(res) {
+    const list = zoomList(res || {});
+    $app.querySelectorAll('[data-zoom]').forEach(b => b.onclick = () => openZoom(list, Math.max(0, list.findIndex(x => x.day === b.dataset.zoom))));
+  }
+  function openZoom(list, i) {
+    if (!list.length) return;
+    let k = i || 0;
+    openLayer(`<div class="zm" role="dialog" aria-label="写真の拡大"><img alt="" referrerpolicy="no-referrer"><div class="zc"></div><span class="zh"></span></div>`);
+    const z = $layer.querySelector('.zm');
+    const draw = () => { const it = list[k]; z.querySelector('img').src = it.src; z.querySelector('.zc').innerHTML = it.cap; z.querySelector('.zh').textContent = (list.length > 1 ? (k + 1) + ' / ' + list.length + '　左右にスワイプで切り替え・' : '') + 'タップで閉じる'; };
+    draw();
+    let x0 = null, swipedAt = 0;
+    z.addEventListener('touchstart', e => { x0 = e.touches[0].clientX; }, { passive: true });
+    z.addEventListener('touchend', e => {
+      if (x0 === null) return; const dx = e.changedTouches[0].clientX - x0; x0 = null;
+      if (Math.abs(dx) > 40 && list.length > 1) { swipedAt = Date.now(); k = (k + (dx < 0 ? 1 : -1) + list.length) % list.length; draw(); }
+    });
+    z.onclick = () => { if (Date.now() - swipedAt < 400) return; closeLayer(); }; // スワイプの直後のタップだけは閉じない
+  }
+
+  // ---------- 写真を撮る・選ぶ（入力欄は画面の描き直しで消えないよう、ページに1つずつ置いておく） ----------
+  const picker = (() => {
+    let cb = null, cam = null, alb = null, opt = {};
+    const mk = capture => {
+      const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*'; i.hidden = true;
+      if (capture) i.setAttribute('capture', 'environment');
+      i.onchange = async () => { const f = i.files && i.files[0]; i.value = ''; if (!f || !cb) return; const c = cb; try { c(await shrink(f, opt.max, opt.q)); } catch (e) { toast('写真を読み込めませんでした'); } };
+      document.body.appendChild(i); return i;
+    };
+    return { open(useCamera, fn, o) { cb = fn; opt = o || {}; if (!cam) { cam = mk(true); alb = mk(false); } (useCamera ? cam : alb).click(); } };
+  })();
+  const photoSrc = ph => 'data:' + ph.mime + ';base64,' + ph.data;
+  function photoFile(ph, name) {
+    const bin = atob(ph.data), u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return new File([u8], name || 'hiruchuka.jpg', { type: ph.mime || 'image/jpeg' });
+  }
+  // Slackへ送る：共有の画面（iPhone の共有シート）で写真と「メニュー名 :hirucyuuka:」を渡す
+  // 送り先のチャンネルは Slack の画面で選ぶ。文字が入らない場合に備えて、文字はコピーもしておく
+  async function sharePost(ph, name) {
+    const text = name + ' ' + HIRU_STAMP;
+    try { if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {}); } catch (e) {}
+    const file = photoFile(ph, 'hiruchuka.jpg');
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], text }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    const url = URL.createObjectURL(file), a = document.createElement('a'); a.href = url; a.download = file.name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    toast('写真を保存し、文字をコピーしました。Slackに貼り付けてください');
+  }
+  function openSlackSheet(ph, name) {
+    openLayer(`<div class="scrim" data-close></div><div class="sheet" role="dialog" aria-label="Slackに送る"><div class="grab"><span></span></div>
+      <div class="sh"><h2>Slackに送る</h2><button class="xbtn" data-close aria-label="閉じる">✕</button></div>
+      <div class="post-sheet"><img src="${photoSrc(ph)}" alt="撮った写真"><div class="ptxt">${esc(name)} <span>${HIRU_STAMP}</span></div>
+      <button class="btn slack block" id="psend">Slackに送る</button>
+      <span class="pnote">共有の画面で Slack を選び、送り先のチャンネルを選んでください。文字が入っていないときは、メッセージ欄に貼り付けてください（コピー済みです）。</span>
+      <button class="lnk" data-close style="color:var(--sub)">閉じる</button></div></div>`);
+    document.getElementById('psend').onclick = () => sharePost(ph, name);
+  }
+
+  // ---------- 投稿をつくる（?post。三連単とは関係なく、写真＋メニュー名を Slack へ） ----------
+  function postUrl() { return location.pathname + '?post' + (/[?&]env=test(&|$)/.test(location.search) ? '&env=test' : ''); }
+  function appUrl() { return location.pathname + (/[?&]env=test(&|$)/.test(location.search) ? '?env=test' : ''); }
+  function renderPost() {
+    document.title = '昼中華の投稿';
+    const P = S.post, ready = P.ph && P.name.trim();
+    $app.innerHTML = `<header class="bar">${LOGO}<b class="post-t">投稿をつくる</b></header>
+      <div class="pad post">
+        ${P.ph ? `<div class="post-img"><img src="${photoSrc(P.ph)}" alt="撮った写真"></div><div class="post-re"><button class="lnk" id="pcam">撮り直す</button><button class="lnk" id="palb">アルバムから選ぶ</button></div>`
+          : `<button class="post-shoot" id="pcam">${CAM_ICON}<b>写真を撮る</b><span>カメラが開きます</span></button><button class="lnk" id="palb" style="align-self:center">アルバムから選ぶ</button>`}
+        <label class="field"><span>メニュー名</span><input id="pname" maxlength="40" value="${esc(P.name)}" placeholder="例：麻婆豆腐" enterkeyhint="done"></label>
+        <div class="post-prev"><small>Slackに入る文字</small><span id="pprev">${esc(P.name.trim() || 'メニュー名')} ${HIRU_STAMP}</span></div>
+        <button class="btn slack block" id="psend" ${ready ? '' : 'disabled'}>Slackに送る</button>
+        <span class="pnote">共有の画面で Slack を選び、送り先のチャンネルを選びます。この画面で作った投稿は、アプリには記録されません。</span>
+        <div class="post-foot"><span>ホーム画面に追加すると、すぐ開けます（共有ボタン →「ホーム画面に追加」）</span><a class="lnk" href="${esc(appUrl())}">昼中華3連単を開く ›</a></div>
+      </div>`;
+    const take = cam => picker.open(cam, ph => { P.ph = ph; render(); });
+    document.getElementById('pcam').onclick = () => take(true);
+    document.getElementById('palb').onclick = () => take(false);
+    const nm = document.getElementById('pname');
+    nm.oninput = () => { P.name = nm.value; document.getElementById('pprev').textContent = (P.name.trim() || 'メニュー名') + ' ' + HIRU_STAMP; document.getElementById('psend').disabled = !(P.ph && P.name.trim()); };
+    document.getElementById('psend').onclick = () => { if (P.ph && P.name.trim()) sharePost(P.ph, P.name.trim()); };
   }
   function maybeGong(v) {
     if (!v || !v.settle || !(v.settle.triple > 0)) return;
@@ -490,7 +585,7 @@
       <div class="bar" style="position:static"><b style="font-size:15px">メニュー</b><button class="ibtn" data-close aria-label="閉じる" style="font-size:16px">✕</button></div>
       <div class="who">${esc(D.me.nick)}</div>
       <div class="bal"><span>持ち点</span><b>${fmt(D.me.balance)} <span style="font-size:13px">pt</span></b></div>
-      <nav class="mlist">${D.me.canRefill ? '<button data-m="refill" class="mrf">ptを補充する</button>' : ''}<span class="sec">記録</span><button data-m="history">過去の結果</button><button data-m="rule">ルール</button><button data-m="contact">問い合わせ</button>
+      <nav class="mlist">${D.me.canRefill ? '<button data-m="refill" class="mrf">ptを補充する</button>' : ''}<span class="sec">記録</span><button data-m="history">過去の結果</button><button data-m="rule">ルール</button><button data-m="contact">問い合わせ</button>${D.me.isHost ? '<button data-m="post">Slackへの投稿をつくる</button>' : ''}
       <span class="sec" style="border-top:1px solid var(--line)">アカウント</span><button data-m="nick">ニックネームを変える</button><button data-m="pass">パスワードを変える</button></nav>
       <div style="margin-top:auto;padding:16px"><button class="btn block" data-m="logout" style="border:1.5px solid var(--red);background:#FFF;color:var(--red);font-weight:700">ログアウト</button></div></aside>`);
     $layer.querySelectorAll('[data-m]').forEach(b => b.onclick = () => {
@@ -499,6 +594,7 @@
       if (m === 'logout') return logout();
       if (m === 'history') return openHistory();
       if (m === 'refill') return openRefill();
+      if (m === 'post') { location.href = postUrl(); return; }
       S.screen = m; render();
     });
   }
@@ -714,24 +810,34 @@
     const w = H.week;
     if (!S.hp) {
       S.hp = w ? { weekId: w.weekId, raceName: w.raceName, mumble: w.mumble || '', deadline: localDT(w.deadline), menus: w.menus.map(m => ({ waku: m.waku, name: m.name })) }
-        : { weekId: H.suggest, raceName: (H.raceNames && H.raceNames[H.raceNames.length - 1]) || '昼中華ステークス', mumble: '', deadline: H.suggest + 'T11:30', menus: [1, 2, 3, 4, 5].map(i => ({ waku: i, name: '' })) };
+        : { weekId: H.suggest, raceName: (H.raceNames && H.raceNames[H.raceNames.length - 1]) || '昼中華ステークス', mumble: '', deadline: H.suggest + 'T11:30', menus: newMenus(H) };
     }
     const hp = S.hp, published = w && w.status === '受付中';
     const locked = published && w.predCount > 0;
     const round = (H.rounds && H.rounds[hp.raceName]) || (w && w.raceName === hp.raceName ? w.round : 1);
     const odds = i => H.odds[i] || (16 + (i - 7) * 4);
-    const rows = hp.menus.map((m, i) => `<div class="mrow"><span class="pop" style="${i === 0 ? 'color:var(--red)' : i === 1 ? 'color:#1F5BC4' : ''}">${i + 1}</span><input value="${esc(m.name)}" data-mi="${i}" placeholder="メニュー名" aria-label="${i + 1}番人気のメニュー" ${locked ? 'disabled' : ''}><span class="od">${oddsTxt(odds(i))}</span><button data-up="${i}" aria-label="人気を上げる" ${i === 0 || locked ? 'disabled' : ''}>▲</button><button data-dn="${i}" aria-label="人気を下げる" ${i === hp.menus.length - 1 || locked ? 'disabled' : ''}>▼</button><button data-del="${i}" aria-label="消す" ${locked ? 'disabled' : ''}>✕</button></div>`).join('');
+    const tag = m => m.name.trim() === OTHER_NAME ? '<em class="tg o">料理名は結果で</em>' : m.fixed ? '<em class="tg">いつも</em>' : '';
+    const rows = hp.menus.map((m, i) => `<div class="mrow"><span class="pop" style="${i === 0 ? 'color:var(--red)' : i === 1 ? 'color:#1F5BC4' : ''}">${i + 1}</span><span class="mi"><input value="${esc(m.name)}" data-mi="${i}" placeholder="${m.fixed ? 'いつものメニュー' : 'メニュー名'}" aria-label="${i + 1}番人気のメニュー" ${locked ? 'disabled' : ''}>${tag(m)}</span><span class="od">${oddsTxt(odds(i))}</span><button data-up="${i}" aria-label="人気を上げる" ${i === 0 || locked ? 'disabled' : ''}>▲</button><button data-dn="${i}" aria-label="人気を下げる" ${i === hp.menus.length - 1 || locked ? 'disabled' : ''}>▼</button><button data-del="${i}" aria-label="消す" ${locked ? 'disabled' : ''}>✕</button></div>`).join('');
     return steps(published ? 2 : 1) +
       `<div class="pad">
         <label class="field"><span style="font-size:12px;color:var(--sub)">開催日（火曜）</span><input type="date" id="hweek" value="${esc(hp.weekId)}" ${w ? 'disabled' : ''}></label>
         <div class="field"><span style="font-size:12px;color:var(--sub)">レース名</span><div style="display:flex;gap:8px;align-items:center"><input id="hname" list="hnames" value="${esc(hp.raceName)}" style="flex:1"><b style="flex:none;font-size:15px">第${round}回</b></div><datalist id="hnames">${(H.raceNames || []).map(n => `<option value="${esc(n)}">`).join('')}</datalist></div>
         <label class="field"><span style="font-size:12px;color:var(--sub)">店長のつぶやき（任意）</span><input id="hmum" value="${esc(hp.mumble)}" maxlength="40"></label>
         <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:12px;font-weight:700;color:var(--sub)"><span>メニュー（人気の順に並べる）</span>${locked ? '<span style="color:var(--red)">予想が入ったので変更できません</span>' : ''}</div>
+        ${locked ? '' : `<button class="btn gray ocr" id="hocr">${CAM_ICON}<span><b>エアレジのスクショから読み込む</b><small>「1.」〜「5.」のメニュー名を1〜5番に入れます</small></span></button>`}
         <div class="mlist2"><div class="mrow th"><span style="text-align:center">人気</span><span>メニュー</span><span style="text-align:right">オッズ</span><span></span><span></span><span></span></div>${rows}${locked ? '' : '<button class="addm" id="hadd">＋ メニューを追加</button>'}</div>
         <label class="field"><span style="font-size:12px;color:var(--sub)">締切</span><input type="datetime-local" id="hdl" value="${esc(hp.deadline)}"></label>
         <div class="err" id="herr"></div>
+        ${published && H.test ? `<div class="testbox"><b>テスト環境だけ</b><span>締切を待たずに、食べたものの登録と結果を試せます。</span><button class="btn ghost" id="htclose">締切を今にする</button></div>` : ''}
+        <details class="regs" ${S.regsOpen ? 'open' : ''}><summary>いつものメニュー（新しい週の6・7番に自動で入る）</summary>
+          <div class="regs-b">${[0, 1].map(i => `<label class="field"><span>${i + 6}番</span><input id="hreg${i}" maxlength="30" value="${esc((H.regulars || [])[i] || '')}" placeholder="例：${i ? '餃子定食' : '天津飯'}"></label>`).join('')}
+          <button class="btn ghost" id="hregsave">いつものメニューを保存</button></div></details>
       </div>
       <div class="foot">${published ? '<span></span>' : '<button class="btn ghost" id="hdraft">下書き保存</button>'}<button class="btn red" id="hpub">${published ? '変更を保存する' : '出馬表を公開する'}</button></div>`;
+  }
+  function newMenus(H) {
+    const reg = H.regulars || [];
+    return [1, 2, 3, 4, 5].map(i => ({ waku: i, name: '' })).concat([0, 1].map(i => ({ waku: 6 + i, name: reg[i] || '', fixed: true })), [{ waku: 8, name: OTHER_NAME }]);
   }
   function dayView(w) {
     const res = w.results;
@@ -739,17 +845,22 @@
     const cards = DAYS.map(d => {
       const r = res[d];
       if (r && !S.redo[d]) {
-        return `<div class="dayc"><div class="t"><span>${d}曜</span><span class="done">${r.waku === 0 ? '中止' : r.waku + ' ' + esc(r.name)} ✓ 発表済み</span></div>${r.photo ? `<div class="thumb"><img src="${esc(r.photo)}" alt="" referrerpolicy="no-referrer"></div>` : ''}<button class="btn gray" data-redo="${d}">やり直す</button></div>`;
+        return `<div class="dayc"><div class="t"><span>${d}曜</span><span class="done">${r.waku === 0 ? '中止' : r.waku + ' ' + esc(r.name) + (r.other ? '（' + OTHER_NAME + '）' : '')} ✓ 発表済み</span></div>${r.photo ? `<button class="thumb ph" data-zoom="${d}" aria-label="${d}曜の写真を拡大"><img src="${esc(r.photo)}" alt="" referrerpolicy="no-referrer"></button>` : ''}<button class="btn gray" data-redo="${d}">やり直す</button></div>`;
       }
       if (d !== next) return `<div class="dayc" style="color:var(--mute)"><div class="t"><span>${d}曜</span><span style="font-size:12px;font-weight:500">${DAYS[DAYS.indexOf(d) - 1]}曜のあとに登録</span></div></div>`;
-      const sel = (S.daySel || {})[d];
-      const opts = w.menus.slice().sort((a, b) => a.waku - b.waku).map(m => `<option value="${m.waku}" ${(sel ? sel === m.waku : r && r.waku === m.waku) ? 'selected' : ''}>${m.waku} ${esc(m.name)}</option>`).join('');
+      const sel = (S.daySel || {})[d] || (r && S.redo[d] ? r.waku : 0);
+      const selM = w.menus.find(m => m.waku === sel);
+      const isOther = selM && selM.name === OTHER_NAME;
+      if (isOther && S.dayOther[d] === undefined && r && r.other) S.dayOther[d] = r.name;
+      const picks = w.menus.slice().sort((a, b) => a.waku - b.waku).map(m => `<button class="pk ${sel === m.waku ? 'on' : ''}" data-pick="${m.waku}" aria-pressed="${sel === m.waku}">${waku(m.waku)}<span>${esc(m.name)}</span></button>`).join('');
       const ph = S.photo[d];
       return `<div class="dayc cur"><div class="t"><span>${d}曜に食べたもの</span></div>
-        <select id="dsel" style="font-size:16px;padding:10px;border:1.5px solid var(--turf);border-radius:6px;background:#FFF"><option value="">— 選んでください —</option>${opts}</select>
-        ${ph ? `<div class="thumb"><img src="data:${ph.mime};base64,${ph.data}" alt=""><span style="flex:1">写真を追加しました</span><button class="btn gray" id="dphoto">写真を変える</button></div>` : '<button class="btn gray" id="dphoto" style="border-style:dashed;color:var(--turf)">写真を追加（任意）</button>'}
-        <input type="file" id="dfile" accept="image/*" hidden>
-        <button class="btn green" id="dpub">${d}曜の食べたものを発表する</button>
+        <span class="dhint">${sel ? '写真を確かめて、発表してください' : '食べたものをタップすると、カメラが開きます'}</span>
+        <div class="pks">${picks}</div>
+        ${isOther ? `<label class="field oth"><span>実際に食べた料理名</span><input id="dother" maxlength="30" value="${esc(S.dayOther[d] || '')}" placeholder="例：エビチリ"></label>` : ''}
+        ${sel ? (ph ? `<div class="shot"><button class="ph" data-zoomnew aria-label="撮った写真を拡大"><img src="${photoSrc(ph)}" alt="撮った写真"></button><div><b>撮った写真</b><button class="lnk" id="dcam">撮り直す</button><button class="lnk" id="dalb">アルバムから選ぶ</button></div></div>`
+          : `<div class="shot none"><button class="btn gray" id="dcam">${CAM_ICON}写真を撮る</button><button class="lnk" id="dalb">アルバムから選ぶ</button></div>`) : ''}
+        <button class="btn green" id="dpub" ${sel ? '' : 'disabled'}>${d}曜の食べたものを発表する</button>
         <button class="btn gray" id="dcancel">${d}曜は中止にする（メニュー外・休み）</button></div>`;
     }).join('');
     const all = DAYS.every(d => res[d]);
@@ -792,6 +903,39 @@
         await loadHost();
       } catch (e) { er.textContent = e.message; }
     };
+    const ocr = document.getElementById('hocr');
+    if (ocr) ocr.onclick = () => picker.open(false, async img => {
+      try {
+        const r = await api('readMenu', { image: img });
+        sync();
+        (r.names || []).forEach((nm, i) => {
+          if (!nm) return;
+          const row = hp.menus.find(m => m.waku === i + 1);
+          if (row) { row.name = nm; row.fixed = false; } else hp.menus.splice(i, 0, { waku: i + 1, name: nm });
+        });
+        render();
+        const miss = (r.names || []).map((nm, i) => nm ? '' : i + 1).filter(Boolean);
+        toast(r.found ? r.found + '品を読み込みました' + (miss.length ? '（' + miss.join('・') + '番は手で入れてください）' : '。まちがいがないか確かめてください') : '「1.」〜「5.」のメニューが見つかりませんでした。手で入れてください');
+      } catch (e) {}
+    }, { max: 2400, q: 0.9 });
+    const rs = document.getElementById('hregsave');
+    if (rs) rs.onclick = async () => {
+      sync();
+      const names = [0, 1].map(i => document.getElementById('hreg' + i).value.trim());
+      try {
+        const old = H.regulars || [];
+        const r = await api('saveRegulars', { names });
+        H.regulars = r.regulars; S.regsOpen = true;
+        if (!w) hp.menus.forEach(m => { if (m.fixed) { const k = m.waku - 6; if (k >= 0 && k < 2 && (!m.name.trim() || m.name.trim() === old[k])) m.name = r.regulars[k] || ''; } });
+        toast('いつものメニューを保存しました'); render();
+      } catch (e) {}
+    };
+    const rg = $app.querySelector('details.regs'); if (rg) rg.ontoggle = () => { S.regsOpen = rg.open; };
+    const tc = document.getElementById('htclose');
+    if (tc) tc.onclick = async () => {
+      if (!confirm('締切を今にします（テスト環境だけ）。このあとは予想できなくなり、食べたものの登録に進みます。')) return;
+      try { await api('testCloseNow', { weekId: w.weekId }); toast('締切を今にしました'); S.data = await api('state', {}, { loading: false }); await loadHost(); } catch (e) {}
+    };
     const dr = document.getElementById('hdraft'); if (dr) dr.onclick = () => save(false);
     document.getElementById('hpub').onclick = () => save(true);
   }
@@ -799,21 +943,35 @@
     $app.querySelectorAll('[data-redo]').forEach(b => b.onclick = () => { S.redo[b.dataset.redo] = true; render(); });
     const next = DAYS.find(d => !w.results[d] || S.redo[d]);
     S.daySel = S.daySel || {};
-    const ds = document.getElementById('dsel');
-    if (ds) ds.onchange = () => { S.daySel[next] = Number(ds.value) || 0; }; // 写真を選んで画面が描き直されても、選んだメニューを覚えておく
-    const file = document.getElementById('dfile'), pb = document.getElementById('dphoto');
-    if (pb && file) { pb.onclick = () => file.click(); file.onchange = async () => { const f = file.files[0]; if (!f) return; try { S.photo[next] = await shrink(f); render(); } catch (e) { toast('写真を読み込めませんでした'); } }; }
+    bindZoom(w.results);
+    const shoot = cam => picker.open(cam, ph => { S.photo[next] = ph; render(); const s = $app.querySelector('.dayc.cur .shot'); if (s) s.scrollIntoView({ block: 'center', behavior: 'smooth' }); });
+    $app.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => {
+      keepOther();
+      S.daySel[next] = Number(b.dataset.pick); render();
+      if (!S.photo[next]) shoot(true); // 写真がまだなら、そのままカメラを開く
+    });
+    const keepOther = () => { const o = document.getElementById('dother'); if (o) S.dayOther[next] = o.value; };
+    const oth = document.getElementById('dother'); if (oth) oth.oninput = keepOther;
+    const cam = document.getElementById('dcam'); if (cam) cam.onclick = () => { keepOther(); shoot(true); };
+    const alb = document.getElementById('dalb'); if (alb) alb.onclick = () => { keepOther(); shoot(false); };
+    const zn = $app.querySelector('[data-zoomnew]'); if (zn) zn.onclick = () => openZoom([{ src: photoSrc(S.photo[next]), cap: `<b>${next}曜</b> 撮った写真` }], 0);
     const send = async wk => {
+      const ph = wk === 0 ? null : S.photo[next] || null;
+      const m = w.menus.find(x => x.waku === wk);
+      const other = m && m.name === OTHER_NAME ? String(S.dayOther[next] || '').trim() : '';
+      if (m && m.name === OTHER_NAME && !other) { toast('実際に食べた料理名を入れてください'); const o = document.getElementById('dother'); if (o) o.focus(); return; }
       try {
-        await api('registerDay', { weekId: w.weekId, day: next, waku: wk, photo: wk === 0 ? null : S.photo[next] || null });
-        delete S.redo[next]; delete S.photo[next]; delete S.daySel[next];
-        toast(next + '曜を' + (wk === 0 ? '中止にしました' : '発表しました'));
+        await api('registerDay', { weekId: w.weekId, day: next, waku: wk, photo: ph, otherName: other });
+        const day = next;
+        delete S.redo[day]; delete S.photo[day]; delete S.daySel[day]; delete S.dayOther[day];
+        toast(day + '曜を' + (wk === 0 ? '中止にしました' : '発表しました'));
         S.data = await api('state', {}, { loading: false });
         await loadHost();
+        if (ph) openSlackSheet(ph, other || m.name); // 発表したら、そのまま Slack へ送れるようにする
       } catch (e) {}
     };
     const pub = document.getElementById('dpub');
-    if (pub) pub.onclick = () => { const v = Number(document.getElementById('dsel').value); if (!v) return toast('メニューを選んでください'); send(v); };
+    if (pub) pub.onclick = () => { keepOther(); const v = S.daySel[next] || (S.redo[next] && w.results[next] ? w.results[next].waku : 0); if (!v) return toast('メニューを選んでください'); send(v); };
     const cx = document.getElementById('dcancel');
     if (cx) cx.onclick = () => { if (confirm(next + '曜を中止にします。中止の日がある週は、全員の使ったptを全額返します。')) send(0); };
     const st = document.getElementById('settle');
@@ -822,14 +980,14 @@
       try { const r = await api('settle', { weekId: w.weekId }); toast(r.status === '返還' ? '確定しました（全額返還）' : '結果を確定しました'); S.data = await api('state', {}, { loading: false }); await loadHost(); } catch (e) {}
     };
   }
-  function shrink(file) {
+  function shrink(file, maxSize, quality) {
     return new Promise((res, rej) => {
       const url = URL.createObjectURL(file); const im = new Image();
       im.onload = () => {
-        const max = 1280, k = Math.min(1, max / Math.max(im.width, im.height));
+        const max = maxSize || 1280, k = Math.min(1, max / Math.max(im.width, im.height));
         const cv = document.createElement('canvas'); cv.width = Math.round(im.width * k); cv.height = Math.round(im.height * k);
         cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height); URL.revokeObjectURL(url);
-        const d = cv.toDataURL('image/jpeg', 0.82); res({ mime: 'image/jpeg', data: d.split(',')[1] });
+        const d = cv.toDataURL('image/jpeg', quality || 0.82); res({ mime: 'image/jpeg', data: d.split(',')[1] });
       };
       im.onerror = rej; im.src = url;
     });
@@ -837,5 +995,5 @@
 
   // ---------- 起動 ----------
   render();
-  if (S.token) refresh().then(() => { if (S.tab === 'host') loadHost(); if (S.tab === 'kekka') maybeGong(S.data.lastResult); }).catch(() => {});
+  if (S.token && !POST_MODE) refresh().then(() => { if (S.tab === 'host') loadHost(); if (S.tab === 'kekka') maybeGong(S.data.lastResult); }).catch(() => {});
 })();

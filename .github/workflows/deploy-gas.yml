@@ -122,6 +122,11 @@ jobs:
             jq '.timeZone = "Asia/Tokyo" | .runtimeVersion = "V8" | .webapp = {"executeAs": "USER_DEPLOYING", "access": "ANYONE_ANONYMOUS"}' appsscript.json > m.json && mv m.json appsscript.json
             echo "::notice::テスト環境にウェブアプリの設定を入れました"
           fi
+          # スクショの読み取り（readMenu）で使う「Drive API」の詳細サービスを有効にする（無ければ足す。権限は今の「ドライブ」の範囲のまま）
+          if ! jq -e '(.dependencies.enabledAdvancedServices // []) | map(select(.userSymbol == "Drive")) | length > 0' appsscript.json > /dev/null; then
+            jq '.dependencies.enabledAdvancedServices = ((.dependencies.enabledAdvancedServices // []) + [{"userSymbol":"Drive","serviceId":"drive","version":"v3"}])' appsscript.json > m.json && mv m.json appsscript.json
+            echo "::notice::Drive API（詳細サービス）を有効にしました"
+          fi
           echo "::notice::差し替えたファイル: $MAIN / プロジェクトのファイル: $(ls *.gs *.json | tr '\n' ' ')"
           ls -la
 
