@@ -77,8 +77,16 @@ jobs:
           clasp pull > ../pull.log 2>&1 || { sed 's/^/::error::clasp pull: /' ../pull.log | head -20; exit 1; }
           cat ../pull.log
           test -f appsscript.json || { echo "::error::appsscript.json を取得できませんでした"; exit 1; }
+          # このアプリのサーバーのファイル（コード.gs など名前は問わない）を1つにまとめ、中身を GitHub の Code.gs にする
+          # 同じ内容のファイルが2つあると「Identifier has already been declared」で動かなくなるため
+          for f in *.gs; do
+            [ -e "$f" ] || continue
+            if grep -q '昼中華3連単 サーバー' "$f"; then echo "置き換え対象: $f"; rm -f "$f"; fi
+          done
           cp ../gas/Code.gs Code.gs
           ls -la
+          n=$(grep -l 'const SHEETS' *.gs | wc -l)
+          if [ "$n" != "1" ]; then echo "::error::サーバーのファイルが1つになりませんでした（$n 個）"; exit 1; fi
 
       - name: Apps Script にコードを反映
         if: steps.check.outputs.ready == 'true'
