@@ -1,0 +1,76 @@
+# gas/Code.gs を GitHub に反映したら、Apps Script を自動で更新して新しいバージョンをデプロイする
+# 必要なシークレット（Settings → Secrets and variables → Actions）
+#   CLASPRC_JSON … clasp login でできた .clasprc.json の中身
+#   SCRIPT_ID    … Apps Script の「プロジェクトの設定」にあるスクリプトID
+# デプロイID は config.js の URL（/macros/s/〈ここ〉/exec）から読み取るので、URL は変わらない
+name: Apps Script を更新
+
+on:
+  push:
+    branches: [main]
+    paths: ['gas/**', '.github/workflows/deploy-gas.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-gas
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 設定がそろっているか確認
+        id: check
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          SCRIPT_ID: ${{ secrets.SCRIPT_ID }}
+        run: |
+          if [ -z "$CLASPRC_JSON" ] || [ -z "$SCRIPT_ID" ]; then
+            echo "::warning::シークレット CLASPRC_JSON と SCRIPT_ID がまだ登録されていないので、今回はスキップしました"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          DEPLOYMENT_ID=$(grep -oE 'macros/s/[A-Za-z0-9_-]+' config.js | head -1 | sed 's#macros/s/##')
+          if [ -z "$DEPLOYMENT_ID" ]; then echo "::error::config.js からデプロイIDを読み取れませんでした"; exit 1; fi
+          echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.ready == 'true'
+        with:
+          node-version: '20'
+
+      - name: clasp を用意
+        if: steps.check.outputs.ready == 'true'
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          npm install -g @google/clasp@2.4.2
+          printf '%s' "$CLASPRC_JSON" > ~/.clasprc.json
+
+      - name: いまの Apps Script を取得して、Code.gs だけ差し替える
+        if: steps.check.outputs.ready == 'true'
+        env:
+          SCRIPT_ID: ${{ secrets.SCRIPT_ID }}
+        run: |
+          mkdir -p work && cd work
+          printf '{"scriptId":"%s","fileExtension":"gs"}' "$SCRIPT_ID" > .clasp.json
+          clasp pull
+          test -f appsscript.json || { echo "::error::appsscript.json を取得できませんでした"; exit 1; }
+          cp ../gas/Code.gs Code.gs
+          ls -la
+
+      - name: Apps Script に反映して、新しいバージョンをデプロイ
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          cd work
+          clasp push --force
+          clasp deploy --deploymentId "${{ steps.check.outputs.deployment_id }}" --description "GitHub ${GITHUB_SHA::7}"
+          echo "### Apps Script を更新しました（${GITHUB_SHA::7}）" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 後片付け
+        if: always()
+        run: rm -f ~/.clasprc.json
