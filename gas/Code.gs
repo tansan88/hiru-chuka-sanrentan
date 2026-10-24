@@ -21,9 +21,11 @@ const SHEETS = {
   レビュー: ['日時', '参加者ID', 'ニックネーム', '回', '遊び方', 'テーマ', '内容', '配当', '不具合', '不具合の内容', 'ひとこと'],
   クイズ: ['ID', '問題', 'A', 'B', 'C', 'D', '正解', '解説', '出典1', '出典2', '使う'],
   エラー: ['日時', '種類', '操作', '内容', '詳しい情報'],
+  問い合わせ: ['日時', '参加者ID', 'ニックネーム', '種類', '内容', '対応メモ'],
 };
 // あとから増えたシート（無ければ自動で作る）
-const AUTO_SHEETS = ['補充', 'レビュー', 'クイズ', 'エラー'];
+const AUTO_SHEETS = ['補充', 'レビュー', 'クイズ', 'エラー', '問い合わせ'];
+const CONTACT_KINDS = ['不具合', '質問', '要望', 'その他'];
 const DAYS = ['火', '水', '木'];
 const DEFAULT_SETTINGS = [
   ['初期持ち点', 10000, '全員が最初に持っているpt'],
@@ -220,6 +222,22 @@ const API = {
     props.setProperties({ clientErrorSlot: slot, clientErrorCount: String(used + 1) });
     const detail = ['画面: ' + String(r.page || '').slice(0, 200), '端末: ' + String(r.ua || '').slice(0, 200), String(r.detail || '').slice(0, 1500)].join('\n');
     reportError_('画面', String(r.where || '').slice(0, 50), msg, detail);
+    return {};
+  },
+  // --- 問い合わせ（メニューから。シートに記録してオーナーにメール） ---
+  contact(r) {
+    const u = auth_(r);
+    const kind = String(r.kind || '');
+    if (CONTACT_KINDS.indexOf(kind) < 0) fail_('種類を選んでください');
+    const body = String(r.body || '').trim();
+    if (body.length < 5) fail_('内容を5文字以上で書いてください');
+    if (body.length > 1000) fail_('内容は1000文字までです');
+    const hourAgo = Date.now() - 3600000;
+    const recent = rowsAuto_('問い合わせ').filter(x => x.参加者ID === u.id && new Date(x.日時).getTime() > hourAgo).length;
+    if (recent >= 5) fail_('問い合わせは1時間に5件までです。少し時間をおいてから送ってください');
+    sheet_('問い合わせ').appendRow([new Date(), u.id, txt_(u.nick), kind, txt_(body), '']);
+    log_(u.id, u.nick, '問い合わせ', kind);
+    try { notifyContact_(u, kind, body); } catch (e) { reportError_('サーバー', 'contact', '問い合わせのメールを送れませんでした：' + e.message, e.stack); }
     return {};
   },
   // --- pt補充（持ち点が100pt未満のとき） ---
@@ -698,6 +716,24 @@ function reportError_(kind, action, message, detail) {
     sheet_('エラー').appendRow([new Date(), kind, txt_(String(action || '')), txt_(String(message || '').slice(0, 1000)), txt_(String(detail || '').slice(0, 3000))]);
   } catch (e) { console.error(e); }
   try { notifyError_(kind, action, message); } catch (e) { console.error(e); }
+}
+// 問い合わせのメール（宛先はエラー通知と同じ）
+function notifyContact_(u, kind, body) {
+  const to = String(getSetting_('エラー通知先') || '').trim() || Session.getEffectiveUser().getEmail();
+  if (!to) return;
+  const text = [
+    '昼中華3連単に問い合わせが届きました。',
+    '',
+    '日時：' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm'),
+    'ニックネーム：' + u.nick,
+    '種類：' + kind,
+    '',
+    body,
+    '',
+    '「問い合わせ」シートにも記録しています。',
+    SpreadsheetApp.getActiveSpreadsheet().getUrl(),
+  ].join('\n');
+  MailApp.sendEmail(to, '【昼中華3連単】問い合わせ（' + kind + '）' + u.nick + 'さんから', text);
 }
 function notifyError_(kind, action, message, force) {
   const props = PropertiesService.getScriptProperties();

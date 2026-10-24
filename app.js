@@ -466,7 +466,7 @@
       <div class="bar" style="position:static"><b style="font-size:15px">メニュー</b><button class="ibtn" data-close aria-label="閉じる" style="font-size:16px">✕</button></div>
       <div class="who">${esc(D.me.nick)}</div>
       <div class="bal"><span>持ち点</span><b>${fmt(D.me.balance)} <span style="font-size:13px">pt</span></b></div>
-      <nav class="mlist">${D.me.canRefill ? '<button data-m="refill" class="mrf">ptを補充する</button>' : ''}<span class="sec">記録</span><button data-m="history">過去の結果</button><button data-m="rule">ルール</button>
+      <nav class="mlist">${D.me.canRefill ? '<button data-m="refill" class="mrf">ptを補充する</button>' : ''}<span class="sec">記録</span><button data-m="history">過去の結果</button><button data-m="rule">ルール</button><button data-m="contact">問い合わせ</button>
       <span class="sec" style="border-top:1px solid var(--line)">アカウント</span><button data-m="nick">ニックネームを変える</button><button data-m="pass">パスワードを変える</button></nav>
       <div style="margin-top:auto;padding:16px"><button class="btn block" data-m="logout" style="border:1.5px solid var(--red);background:#FFF;color:var(--red);font-weight:700">ログアウト</button></div></aside>`);
     $layer.querySelectorAll('[data-m]').forEach(b => b.onclick = () => {
@@ -533,6 +533,29 @@
       bindPin($app);
       document.getElementById('back').onclick = () => { S.screen = null; render(); };
       document.getElementById('f').onsubmit = async e => { e.preventDefault(); const o = document.getElementById('p-old').value, n = document.getElementById('p-new').value; if (!/^\d{4}$/.test(n)) return document.getElementById('er').textContent = '新しいパスワードは数字4桁です'; try { const r = await api('changePass', { oldPass: o, newPass: n }); if (r.token) { S.token = r.token; store.set('hc_token', r.token); } toast('パスワードを変えました'); S.screen = null; render(); } catch (er) { document.getElementById('er').textContent = er.message; } };
+      return;
+    }
+    if (sc === 'contact') {
+      const f = S.cf || (S.cf = { kind: '', body: '' });
+      const req = '<em class="req">必須</em>';
+      $app.innerHTML = subBar('問い合わせ') + `<div class="rv"><div class="rv-h"><b>オーナーに問い合わせる</b><span>不具合や分からないことを送ってください。読むのはオーナーだけです。みんなに関係する内容は、店長のつぶやき欄でお知らせすることがあります。</span></div>
+        <div class="rv-b"><span class="rv-t">1. 種類${req}</span><div class="chips">${['不具合', '質問', '要望', 'その他'].map(v => `<label class="chip"><input type="radio" name="kind" value="${esc(v)}" ${f.kind === v ? 'checked' : ''}><span>${esc(v)}</span></label>`).join('')}</div></div>
+        <div class="rv-b"><label for="cfbody" class="rv-t">2. 内容${req}</label><textarea id="cfbody" rows="6" maxlength="1000" placeholder="例：結果タブの写真が出ない／締切の時間を知りたい">${esc(f.body)}</textarea><span class="cnt" id="cnt"></span></div></div>
+        <div class="dock"><div class="err" id="cferr" style="color:#FFC9C9"></div><button class="btn gold block" id="cfsend">送信する</button></div>`;
+      document.getElementById('back').onclick = () => { S.screen = null; render(); };
+      const upd = () => {
+        const k = $app.querySelector('input[name=kind]:checked'); f.kind = k ? k.value : '';
+        f.body = document.getElementById('cfbody').value;
+        const len = f.body.trim().length, c = document.getElementById('cnt');
+        c.textContent = len + '文字（5〜1000文字）'; c.className = 'cnt' + (len >= 5 ? ' ok' : '');
+        document.getElementById('cfsend').disabled = !(f.kind && len >= 5);
+      };
+      $app.querySelectorAll('.rv input, .rv textarea').forEach(x => { x.oninput = upd; x.onchange = upd; });
+      upd();
+      document.getElementById('cfsend').onclick = async () => {
+        try { await api('contact', { kind: f.kind, body: f.body }); S.cf = null; toast('送信しました。ありがとうございます'); S.screen = null; render(); window.scrollTo(0, 0); }
+        catch (e) { document.getElementById('cferr').textContent = e.message; }
+      };
       return;
     }
     if (sc === 'refill' || sc === 'quiz' || sc === 'quizdone' || sc === 'review' || sc === 'reviewdone') return renderRefill(sc);
