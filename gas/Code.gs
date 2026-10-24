@@ -92,6 +92,7 @@ function doGet(e) {
 // （画面の版は app.js の APP_VERSION。版を送らない古い画面は 0 として扱う）
 const MIN_APP_VERSION = 0;
 function doPost(e) {
+  const t0 = Date.now();
   let req = {};
   try { req = JSON.parse(e.postData.contents || '{}'); } catch (err) { return json_({ ok: false, error: '送信内容が読めませんでした' }); }
   if (req.action !== 'clientError' && (Number(req.v) || 0) < MIN_APP_VERSION) return json_({ ok: false, reload: true, error: 'アプリが新しくなりました。画面を開き直してください' });
@@ -106,6 +107,7 @@ function doPost(e) {
     if (!fn) throw new UserError('不明な操作です');
     const out = fn(req) || {};
     out.ok = true;
+    out.ms = Date.now() - t0; // サーバーの中でかかった時間（速さを測るため）
     return json_(out);
   } catch (err) {
     if (err instanceof UserError) return json_({ ok: false, error: err.message });
