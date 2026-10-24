@@ -52,7 +52,7 @@ const G = {
   LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
   Session: { getScriptTimeZone: () => 'Asia/Tokyo', getEffectiveUser: () => ({ getEmail: () => 'owner@example.com' }) },
   MailApp: { sent: [], sendEmail(to, subject, body) { if (G.MailApp.fail) throw new Error('メール送信の許可がありません'); G.MailApp.sent.push({ to, subject, body }); } },
-  PropertiesService: (() => { const p = {}; const o = { getProperty: k => (k in p ? p[k] : null), setProperty: (k, v) => { p[k] = String(v); return o; }, setProperties: m => { Object.keys(m).forEach(k => p[k] = String(m[k])); return o; }, _p: p }; return { getScriptProperties: () => o }; })(),
+  PropertiesService: (() => { const p = {}; const o = { getProperty: k => (k in p ? p[k] : null), setProperty: (k, v) => { p[k] = String(v); return o; }, setProperties: m => { Object.keys(m).forEach(k => p[k] = String(m[k])); return o; }, deleteProperty: k => { delete p[k]; return o; }, getKeys: () => Object.keys(p), _p: p }; return { getScriptProperties: () => o }; })(),
   ContentService: { MimeType: { JSON: 'json' }, createTextOutput: s => ({ content: s, setMimeType() { return this; } }) },
   Utilities: {
     getUuid: () => crypto.randomUUID(),
@@ -74,6 +74,6 @@ const G = {
 };
 module.exports = codePath => {
   const code = fs.readFileSync(codePath, 'utf8');
-  const ctx = new Function(...Object.keys(G), code + '\n;return { doPost, doGet, 初期設定, API, SHEETS, バックアップを設定する, バックアップを取る, 定期バックアップ, エラー通知のテスト, reportError_, __reset: () => { SETTINGS_ = null; } };')(...Object.values(G));
+  const ctx = new Function(...Object.keys(G), code + '\n;return { doPost, doGet, 初期設定, API, SHEETS, バックアップを設定する, バックアップを取る, 定期バックアップ, エラー通知のテスト, ログインロックを解除する, reportError_, __reset: () => { SETTINGS_ = null; } };')(...Object.values(G));
   return { ctx, SS, files, coerce, G };
 };

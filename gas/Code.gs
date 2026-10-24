@@ -122,7 +122,10 @@ const API = {
   },
   login(r) {
     const u = findUserByNick_(String(r.nick || '').trim());
-    if (!u || hash_(u.salt, String(r.pass || '')) !== u.pass) fail_('ニックネームかパスワードがちがいます');
+    if (!u) fail_('ニックネームかパスワードがちがいます');
+    checkLoginLock_(u);
+    if (hash_(u.salt, String(r.pass || '')) !== u.pass) loginFailed_(u);
+    clearLoginFail_(u);
     let token = u.token;
     if (!token) { token = Utilities.getUuid(); setUserCell_(u, 'ログイン鍵', token); }
     log_(u.id, u.nick, 'ログイン', '');
@@ -607,6 +610,46 @@ function setSetting_(key, val) {
   if (i >= 0) sh.getRange(i + 2, 2).setValue(val); else sh.appendRow([key, val, '']);
   SETTINGS_ = null;
 }
+// ===== パスワードの回数ロック =====
+// 同じニックネームで続けて5回まちがえると、15分間ログインできなくなります（正しいパスワードでも不可）。
+// まちがいの回数は、最後のまちがいから15分たつか、ログインに成功すると0に戻ります。
+// すぐ解除したいときは、エディタで関数「ログインロックを解除する」を実行します。
+const LOGIN_MAX_FAIL = 5;
+const LOGIN_LOCK_MS = 15 * 60 * 1000;
+function loginKey_(u) { return 'loginFail_' + u.id; }
+function loginState_(u) {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty(loginKey_(u)) || '{}'); } catch (e) { return {}; }
+}
+function checkLoginLock_(u) {
+  const st = loginState_(u);
+  const left = Number(st.until || 0) - Date.now();
+  if (left > 0) fail_('パスワードを' + LOGIN_MAX_FAIL + '回まちがえたため、あと' + Math.ceil(left / 60000) + '分ログインできません。時間をおいてからやり直してください');
+}
+function loginFailed_(u) {
+  const props = PropertiesService.getScriptProperties();
+  const st = loginState_(u);
+  const now = Date.now();
+  const n = (now - Number(st.last || 0) < LOGIN_LOCK_MS ? Number(st.n || 0) : 0) + 1;
+  if (n >= LOGIN_MAX_FAIL) {
+    props.setProperty(loginKey_(u), JSON.stringify({ n: 0, last: 0, until: now + LOGIN_LOCK_MS }));
+    log_(u.id, u.nick, 'ログインロック', 'パスワードを' + LOGIN_MAX_FAIL + '回まちがえたため15分ロック');
+    fail_('パスワードを' + LOGIN_MAX_FAIL + '回まちがえたため、15分間ログインできません。時間をおいてからやり直してください');
+  }
+  props.setProperty(loginKey_(u), JSON.stringify({ n, last: now, until: 0 }));
+  const rest = LOGIN_MAX_FAIL - n;
+  fail_('ニックネームかパスワードがちがいます' + (rest <= 2 ? '（あと' + rest + '回まちがえると、15分間ログインできなくなります）' : ''));
+}
+function clearLoginFail_(u) {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty(loginKey_(u)) !== null) props.deleteProperty(loginKey_(u));
+}
+function ログインロックを解除する() {
+  const props = PropertiesService.getScriptProperties();
+  const keys = props.getKeys().filter(k => k.indexOf('loginFail_') === 0);
+  keys.forEach(k => props.deleteProperty(k));
+  Logger.log('ログインのロックとまちがいの回数をすべて解除しました（' + keys.length + '人分）');
+}
+
 function log_(id, nick, op, detail) { sheet_('ログ').appendRow([new Date(), id, txt_(String(nick)), op, txt_(String(detail))]); }
 // 入力された文字は、スプレッドシートに数字・日付・数式として解釈されないよう文字のまま書く
 // （先頭の ' はセルには表示されず、読み出した値にも含まれない）
