@@ -546,8 +546,7 @@
     openLayer(`<div class="scrim" data-close></div><div class="sheet" role="dialog" aria-label="結果をシェア"><div class="grab"><span></span></div>
       <div class="share"><img id="shimg" alt="シェア画像のプレビュー"><div class="ok" id="shok"><span class="dots" style="font-size:14px;color:var(--sub)">画像を作っています</span></div>
       <button class="btn slack block" id="slack" disabled>Slackに送る</button>
-      <span class="pnote" style="align-self:stretch"><b>①</b> 共有の画面で Slack を選ぶ　<b>②</b> 送り先のチャンネルを選ぶ　<b>③</b> 送信</span>
-      <div class="links"><button class="lnk" id="shsave">画像を保存</button><button class="lnk" data-close style="color:var(--sub)">閉じる</button></div></div></div>`);
+      <div class="links"><button class="lnk" data-close style="color:var(--sub)">閉じる</button></div></div></div>`);
     blobP.then(blob => {
       const url = URL.createObjectURL(blob);
       const file = new File([blob], 'hiruchuka-' + v.weekId + '.png', { type: 'image/png' });
@@ -559,7 +558,6 @@
         download(); toast('画像を保存しました。Slackに貼り付けて投稿してね');
       };
       const sl = document.getElementById('slack'); if (sl) { sl.disabled = false; sl.onclick = share; }
-      const save = document.getElementById('shsave'); if (save) save.onclick = share;
     }).catch(() => { const okEl = document.getElementById('shok'); if (okEl) okEl.textContent = '画像を作れませんでした'; });
   }
 
@@ -790,11 +788,13 @@
 
   // ---------- ホストタブ ----------
   // withState：画面の中身（持ち点など）も同時に読み直す（順番に読むより速い）
-  async function loadHost(withState) {
+  async function loadHost(withState, opt) {
+    const bg = opt && opt.quiet; // 後ろで読み直す（中華鍋の画面を出さない・失敗しても今の画面のまま）
     try {
-      const [h, st] = await Promise.all([api('hostState'), withState ? api('state', {}, { loading: false }) : null]);
+      const [h, st] = await Promise.all([api('hostState', {}, bg ? { loading: false } : undefined), withState ? api('state', {}, { loading: false }) : null]);
       S.host = h; if (st) S.data = st; S.hp = null; S.redo = {}; S.photo = {};
-    } catch (e) { S.host = null; }
+    } catch (e) { if (!bg) S.host = null; }
+    if (bg) { if (S.tab === 'host' && !S.screen) { const y = window.scrollY; render(); window.scrollTo(0, y); } return; }
     render(); window.scrollTo(0, 0);
   }
   function hostTab() {
@@ -978,10 +978,11 @@
             if (!(got && got.waku === wk && (!ph || got.photo))) { toast('通信できませんでした。電波のよいところでやり直してください'); throw e; }
           }
           delete S.redo[day]; delete S.photo[day]; delete S.daySel[day]; delete S.dayOther[day];
-          await loadHost(true);
         });
         toast(day + '曜を' + (wk === 0 ? '中止にしました' : '発表しました'));
-        if (ph) openSlackSheet(ph, other || m.name); // 発表したら、そのまま Slack へ送れるようにする
+        // 登録できたらすぐに Slack へ送れるようにし、ホスト画面の読み直しは後ろで行う（待ち時間を減らす）
+        if (ph) openSlackSheet(ph, other || m.name);
+        loadHost(true, { quiet: true });
       } catch (e) {}
     };
     const pub = document.getElementById('dpub');

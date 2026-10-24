@@ -75,6 +75,8 @@ a{color:var(--turf)}
 .legend span{display:inline-flex;align-items:center;gap:4px}
 .legend .mk{width:20px;height:20px;font-size:12px}
 .bowl{width:30px;height:30px;justify-self:center}
+.bowl svg{width:100%;height:100%;display:block;flex:none}
+.legend .bowl{flex:none}
 
 /* 下のバー */
 .dock{margin-top:auto;background:var(--turf);color:#FFF;padding:12px 14px;padding-bottom:max(16px,env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:8px;position:sticky;bottom:0}
