@@ -58,6 +58,7 @@ ok(rows()[rows().length - 1][3] === '=IMPORTXML("http://x","//a")', '数式に�
 const m0 = G.MailApp.sent.length; props.setProperty('lastErrorMail', String(Date.now()));
 ctx.エラー通知のテスト();
 ok(G.MailApp.sent.length === m0 + 1 && /テスト/.test(G.MailApp.sent[m0].body), 'テストのメール', G.MailApp.sent.length - m0);
+ok(rows().some(x => x[1] === 'テスト'), 'テストでエラーシートにも記録', rows().length);
 // 定期バックアップの失敗も記録
 const gf = G.DriveApp.getFileById; G.DriveApp.getFileById = () => { throw new Error('ドライブがいっぱい'); };
 let thrown = false; try { ctx.定期バックアップ(); } catch (e) { thrown = true; }
