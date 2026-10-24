@@ -148,7 +148,7 @@ a{color:var(--turf)}
 .err{color:var(--red);font-size:13px;font-weight:700;min-height:1em}
 
 /* 結果 */
-.sum{margin:12px 14px 0;background:var(--turf);color:#FFF;border-radius:6px;padding:14px;display:flex;justify-content:space-between;align-items:center;position:relative;overflow:hidden}
+.sum{margin:12px 14px 0;background:var(--turf);color:#FFF;border-radius:6px;padding:14px;display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center;position:relative;overflow:hidden}
 .sum.hit{background:var(--red)}
 .sum .l{display:flex;flex-direction:column;gap:2px;position:relative}
 .sum small{font-size:12px;color:#D6E6DA}
@@ -165,9 +165,9 @@ a{color:var(--turf)}
 .sum .ms .none{border:2px dashed #8FB59C}
 .brk{margin:10px 14px 0;background:#FFF;border:1px solid var(--line2);border-radius:6px;display:flex;flex-direction:column;font-size:13px}
 .brk .h{font-size:12px;font-weight:700;padding:8px 12px;border-bottom:1px solid var(--line);color:var(--sub)}
-.brk .r{display:grid;grid-template-columns:30px 28px minmax(0,1fr) 72px;gap:6px;align-items:center;padding:8px 12px;border-bottom:1px solid #F0F2F1}
+.brk .r{display:grid;grid-template-columns:30px 28px minmax(0,1fr) minmax(72px,auto);gap:6px;align-items:center;padding:8px 12px;border-bottom:1px solid #F0F2F1}
 .brk .r:last-child{border-bottom:0}
-.brk .r.t{grid-template-columns:minmax(0,1fr) 72px;background:#F7F8F7}
+.brk .r.t{grid-template-columns:minmax(0,1fr) minmax(72px,auto);background:#F7F8F7}
 .brk .r.t.win{background:#FFF4D6}
 .brk .v{text-align:right;color:var(--sub)}
 .brk .v.plus{font-weight:900;color:var(--turf)}
@@ -246,7 +246,7 @@ a{color:var(--turf)}
 .foot{padding:10px 14px;padding-bottom:max(16px,env(safe-area-inset-bottom));display:grid;grid-template-columns:1fr 1.6fr;gap:8px;border-top:1px solid var(--line2);background:#FFF;margin-top:auto;position:sticky;bottom:0}
 
 /* 過去の結果 */
-.hrow{display:grid;grid-template-columns:minmax(0,1fr) auto 64px 12px;gap:10px;align-items:center;padding:12px 14px;border:0;border-bottom:1px solid var(--line);background:#FFF;text-align:left;width:100%;color:var(--ink)}
+.hrow{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(64px,auto) 12px;gap:10px;align-items:center;padding:12px 14px;border:0;border-bottom:1px solid var(--line);background:#FFF;text-align:left;width:100%;color:var(--ink)}
 .hrow.th{padding:6px 14px;background:var(--bg);font-size:11px;font-weight:700;color:var(--sub)}
 .hrow b{font-size:14px;display:block}
 .hrow small{font-size:12px;color:var(--sub)}
