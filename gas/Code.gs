@@ -33,6 +33,8 @@ const DEFAULT_SETTINGS = [
   ['クイズの補充pt', 5000, '持ち点が100pt未満のとき、豆知識クイズに答えると補充されるpt'],
   ['レビューの補充pt', 15000, '持ち点が100pt未満のとき、レビューを書くと補充されるpt'],
   ['写真フォルダID', '', '初期設定で自動作成'],
+  ['バックアップの保存数', 8, '毎週のバックアップを何回分残すか（それより古いものはゴミ箱へ）'],
+  ['バックアップフォルダID', '', '最初のバックアップで自動作成'],
 ];
 const REFILL_LINE = 100; // これ未満になったら補充できる（1回に使える最小のpt）
 const REVIEW_OPT = {
@@ -605,6 +607,47 @@ function quizRows_() {
     qs = rows_('クイズ');
   }
   return qs;
+}
+
+// ===== バックアップ =====
+// 「バックアップを設定する」を1回だけ手で実行すると、毎週金曜の朝5時ごろに自動でバックアップを取ります。
+// すぐ1回取りたいときは「バックアップを取る」を実行します。
+// 保存先：オーナーのドライブの「昼中華3連単のバックアップ」フォルダ（共有しないこと）
+// 戻すとき：バックアップのファイルを開き、戻したいシートの中身を元のスプレッドシートに貼り戻す（ファイルの乗り換えはしない）
+const BACKUP_PREFIX = '昼中華3連単_バックアップ_';
+function バックアップを設定する() {
+  ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === '定期バックアップ').forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('定期バックアップ').timeBased().onWeekDay(ScriptApp.WeekDay.FRIDAY).atHour(5).create();
+  const r = backup_();
+  Logger.log('毎週金曜の朝にバックアップを取るように設定しました。1回目：' + r.name);
+}
+function バックアップを取る() {
+  const r = backup_();
+  Logger.log('バックアップを取りました：' + r.name + '（' + r.kept + '件を保存中、' + r.removed + '件をゴミ箱へ）');
+}
+function 定期バックアップ() { backup_(); }
+function backup_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let folder = null;
+  const fid = getSetting_('バックアップフォルダID');
+  if (fid) { try { folder = DriveApp.getFolderById(fid); } catch (e) { folder = null; } }
+  if (!folder) {
+    folder = DriveApp.createFolder('昼中華3連単のバックアップ');
+    setSetting_('バックアップフォルダID', folder.getId());
+  }
+  const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd_HHmm');
+  const name = BACKUP_PREFIX + stamp;
+  DriveApp.getFileById(ss.getId()).makeCopy(name, folder);
+  // 古いものをゴミ箱へ（ゴミ箱からは30日間戻せる）
+  const keep = Math.max(1, Math.floor(Number(getSetting_('バックアップの保存数')) || 8));
+  const list = [];
+  const it = folder.getFiles();
+  while (it.hasNext()) { const f = it.next(); if (f.getName().indexOf(BACKUP_PREFIX) === 0 && !f.isTrashed()) list.push(f); }
+  list.sort((a, b) => b.getDateCreated() - a.getDateCreated());
+  const old = list.slice(keep);
+  old.forEach(f => f.setTrashed(true));
+  try { log_('', 'システム', 'バックアップ', name + '（古いもの' + old.length + '件をゴミ箱へ）'); } catch (e) {}
+  return { name, kept: list.length - old.length, removed: old.length };
 }
 
 // ===== 豆知識クイズの最初の問題集（クイズシートが空のときだけ使う。以後はシートを直せば反映される） =====
