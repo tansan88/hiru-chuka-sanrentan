@@ -208,7 +208,7 @@
       try {
         const r = await api(reg ? 'register' : 'login', { nick, pass });
         S.token = r.token; store.set('hc_token', r.token); S.tab = 'yoso';
-        await refresh();
+        if (r.state) { S.data = r.state; render(); } else await refresh(); // ログインの返事に画面の中身も入っている
       } catch (e) { er.textContent = e.message; }
     };
   }
@@ -789,8 +789,12 @@
   }
 
   // ---------- ホストタブ ----------
-  async function loadHost() {
-    try { S.host = await api('hostState'); S.hp = null; S.redo = {}; S.photo = {}; } catch (e) { S.host = null; }
+  // withState：画面の中身（持ち点など）も同時に読み直す（順番に読むより速い）
+  async function loadHost(withState) {
+    try {
+      const [h, st] = await Promise.all([api('hostState'), withState ? api('state', {}, { loading: false }) : null]);
+      S.host = h; if (st) S.data = st; S.hp = null; S.redo = {}; S.photo = {};
+    } catch (e) { S.host = null; }
     render(); window.scrollTo(0, 0);
   }
   function hostTab() {
@@ -901,9 +905,8 @@
       try { await busy(async () => {
         await api('saveWeek', { weekId: hp.weekId, raceName: hp.raceName, mumble: hp.mumble, deadline: new Date(hp.deadline).toISOString(), menus: menus.map(m => ({ waku: m.waku, name: m.name.trim() })), publish: publish || (w && w.status === '受付中') });
         toast(publish ? (w && w.status === '受付中' ? '保存しました' : '出馬表を公開しました') : '下書きを保存しました');
-        S.data = await api('state', {}, { loading: false });
         S.hp = null; // 保存した内容（枠の詰め直しなど）をサーバーから読み直す
-        await loadHost();
+        await loadHost(true);
       }); } catch (e) { er.textContent = e.message; }
     };
     const ocr = document.getElementById('hocr');
@@ -937,7 +940,7 @@
     const tc = document.getElementById('htclose');
     if (tc) tc.onclick = async () => {
       if (!confirm('締切を今にします（テスト環境だけ）。このあとは予想できなくなり、食べたものの登録に進みます。')) return;
-      try { await busy(async () => { await api('testCloseNow', { weekId: w.weekId }); S.data = await api('state', {}, { loading: false }); await loadHost(); }); toast('締切を今にしました'); } catch (e) {}
+      try { await busy(async () => { await api('testCloseNow', { weekId: w.weekId }); await loadHost(true); }); toast('締切を今にしました'); } catch (e) {}
     };
     const dr = document.getElementById('hdraft'); if (dr) dr.onclick = () => save(false);
     document.getElementById('hpub').onclick = () => save(true);
@@ -975,8 +978,7 @@
             if (!(got && got.waku === wk && (!ph || got.photo))) { toast('通信できませんでした。電波のよいところでやり直してください'); throw e; }
           }
           delete S.redo[day]; delete S.photo[day]; delete S.daySel[day]; delete S.dayOther[day];
-          S.data = await api('state', {}, { loading: false });
-          await loadHost();
+          await loadHost(true);
         });
         toast(day + '曜を' + (wk === 0 ? '中止にしました' : '発表しました'));
         if (ph) openSlackSheet(ph, other || m.name); // 発表したら、そのまま Slack へ送れるようにする
@@ -989,7 +991,7 @@
     const st = document.getElementById('settle');
     if (st) st.onclick = async () => {
       if (!confirm('結果を確定します。確定するとptが計算され、元に戻せません。')) return;
-      try { const r = await busy(async () => { const x = await api('settle', { weekId: w.weekId }); S.data = await api('state', {}, { loading: false }); await loadHost(); return x; }); toast(r.status === '返還' ? '確定しました（全額返還）' : '結果を確定しました'); } catch (e) {}
+      try { const r = await busy(async () => { const x = await api('settle', { weekId: w.weekId }); await loadHost(true); return x; }); toast(r.status === '返還' ? '確定しました（全額返還）' : '結果を確定しました'); } catch (e) {}
     };
   }
   function shrink(file, maxSize, quality) {
@@ -1007,5 +1009,8 @@
 
   // ---------- 起動 ----------
   render();
-  if (S.token && !POST_MODE) refresh().then(() => { if (S.tab === 'host') loadHost(); if (S.tab === 'kekka') maybeGong(S.data.lastResult); }).catch(() => {});
+  if (S.token && !POST_MODE) {
+    if (S.tab === 'host') loadHost(true).then(() => { if (!S.data) refresh().catch(() => {}); });
+    else refresh().then(() => { if (S.tab === 'kekka') maybeGong(S.data.lastResult); }).catch(() => {});
+  }
 })();

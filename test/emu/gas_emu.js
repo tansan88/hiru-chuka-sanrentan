@@ -27,6 +27,7 @@ class Sheet {
     if (r < 1 || c < 1 || (nr !== undefined && nr < 1) || (nc !== undefined && nc < 1)) throw new Error('範囲の座標が無効です: ' + [r, c, nr, nc]);
     return new Range(this, r, c, nr || 1, nc || 1);
   }
+  getDataRange() { const n = this.getLastRow(), m = this.getLastColumn(); return new Range(this, 1, 1, Math.max(1, n), Math.max(1, m)); }
   appendRow(vals) { const r = this.getLastRow() + 1; vals.forEach((v, j) => this.set(r, j + 1, v)); return this; }
   deleteRow(r) { this.data.splice(r - 1, 1); return this; }
   setFrozenRows() { return this; }
@@ -80,6 +81,6 @@ const G = {
 };
 module.exports = codePath => {
   const code = fs.readFileSync(codePath, 'utf8');
-  const ctx = new Function(...Object.keys(G), code + '\n;return { doPost, doGet, lastBackupAt_, 初期設定, API, SHEETS, バックアップを設定する, バックアップを取る, 定期バックアップ, エラー通知のテスト, ログインロックを解除する, reportError_, parseMenuText_, fixMojibake_, __reset: () => { SETTINGS_ = null; } };')(...Object.values(G));
+  const ctx = new Function(...Object.keys(G), code + '\n;return { doPost, doGet, lastBackupAt_, 初期設定, API, SHEETS, バックアップを設定する, バックアップを取る, 定期バックアップ, エラー通知のテスト, ログインロックを解除する, reportError_, parseMenuText_, fixMojibake_, __reset: () => { resetCache_(); } };')(...Object.values(G));
   return { ctx, SS, files, coerce, G };
 };

@@ -93,6 +93,7 @@ function doGet(e) {
 const MIN_APP_VERSION = 0;
 function doPost(e) {
   const t0 = Date.now();
+  resetCache_();
   let req = {};
   try { req = JSON.parse(e.postData.contents || '{}'); } catch (err) { return json_({ ok: false, error: '送信内容が読めませんでした' }); }
   if (req.action !== 'clientError' && (Number(req.v) || 0) < MIN_APP_VERSION) return json_({ ok: false, reload: true, error: 'アプリが新しくなりました。画面を開き直してください' });
@@ -139,7 +140,7 @@ const API = {
     sh.getRange(row, 1, 1, 8).setValues([[id, txt_(nick), hash_(salt, pass), salt, false, 0, new Date(), token]]);
     sh.getRange(row, 5).insertCheckboxes();
     log_(id, nick, '登録', '');
-    return { token };
+    return { token, state: withState_(token) };
   },
   login(r) {
     const u = findUserByNick_(String(r.nick || '').trim());
@@ -151,7 +152,7 @@ const API = {
     if (!token || tokenExpired_(u)) { token = Utilities.getUuid(); setUserCell_(u, 'ログイン鍵', token); }
     touchToken_(u, true);
     log_(u.id, u.nick, 'ログイン', '');
-    return { token };
+    return { token, state: withState_(token) };
   },
   changeNick(r) {
     const u = auth_(r);
@@ -667,27 +668,34 @@ function hash_(salt, pass) {
 }
 
 // ===== シート読み書き =====
+// 1回の呼び出しの中では、同じシートを何度も探さない（スプレッドシートへの問い合わせは1回ごとに時間がかかる）
+let SS_ = null, SHEET_ = {}, ENV_ = null;
+function resetCache_() { SS_ = null; SHEET_ = {}; ENV_ = null; SETTINGS_ = null; }
+function ss_() { return SS_ || (SS_ = SpreadsheetApp.getActiveSpreadsheet()); }
+function findSheet_(name) { if (!SHEET_[name]) SHEET_[name] = ss_().getSheetByName(name); return SHEET_[name]; }
 function sheet_(name) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sh = ss.getSheetByName(name);
+  const ss = ss_();
+  let sh = findSheet_(name);
   if (!sh && AUTO_SHEETS.indexOf(name) >= 0) {
     sh = ss.insertSheet(name);
     sh.getRange(1, 1, 1, SHEETS[name].length).setValues([SHEETS[name]]).setFontWeight('bold').setBackground('#E9F1EB');
     sh.setFrozenRows(1);
   }
   if (!sh) fail_('シート「' + name + '」がありません。初期設定を実行してください');
+  SHEET_[name] = sh;
   return sh;
 }
 // 自動で作るシートを読む（まだ無いときは作らずに空として扱う）
 function rowsAuto_(name) {
-  return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name) ? rows_(name) : [];
+  return findSheet_(name) ? rows_(name) : [];
 }
 function rows_(name) {
   const sh = sheet_(name);
-  const n = sh.getLastRow();
-  if (n < 2) return [];
+  // 入っている範囲を1回で読む（行数を数えてから読むと2回の問い合わせになる）
+  const all = sh.getDataRange().getValues();
+  if (all.length < 2) return [];
   const head = SHEETS[name];
-  return sh.getRange(2, 1, n - 1, head.length).getValues().map((v, i) => {
+  return all.slice(1).map(v => { while (v.length < head.length) v.push(''); return v; }).map((v, i) => {
     const o = { _row: i + 2 };
     head.forEach((h, j) => o[h] = v[j] instanceof Date && h === '週ID' ? Utilities.formatDate(v[j], Session.getScriptTimeZone(), 'yyyy-MM-dd') : v[j]);
     return o;
@@ -706,7 +714,7 @@ function deleteRows_(name, rows) { rows.sort((a, b) => b - a).forEach(r => sheet
 let SETTINGS_ = null;
 function getSetting_(key) {
   if (!SETTINGS_) {
-    const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('設定');
+    const sh = findSheet_('設定');
     SETTINGS_ = {};
     sh.getRange(2, 1, Math.max(1, sh.getLastRow() - 1), 2).getValues().forEach(x => { if (x[0] !== '') SETTINGS_[x[0]] = x[1]; });
   }
@@ -718,6 +726,10 @@ function setSetting_(key, val) {
   const i = vals.findIndex(x => x[0] === key);
   if (i >= 0) sh.getRange(i + 2, 2).setValue(val); else sh.appendRow([key, val, '']);
   SETTINGS_ = null;
+}
+// ログイン・登録の返事に、画面の中身（state）も入れる（失敗しても、ログインは成功のまま）
+function withState_(token) {
+  try { SHEET_ = {}; return API.state({ token }); } catch (e) { return null; }
 }
 // いつものメニュー（空のものは除く）
 function regulars_() { return REGULAR_KEYS.map(k => String(getSetting_(k) || '').trim()); }
@@ -840,7 +852,7 @@ function reportError_(kind, action, message, detail) {
 }
 // テスト用のスプレッドシート（名前に「テスト」を含む）から送るメールには印を付ける
 // テスト環境で作るフォルダの名前に付ける印（本番のフォルダと見分けるため）
-function envSuffix_() { try { return /テスト/.test(SpreadsheetApp.getActiveSpreadsheet().getName()) ? '（テスト）' : ''; } catch (e) { return ''; } }
+function envSuffix_() { if (ENV_ === null) { try { ENV_ = /テスト/.test(ss_().getName()) ? 'テスト' : ''; } catch (e) { ENV_ = ''; } } return ENV_ ? '（テスト）' : ''; }
 function mailTag_() { try { return /テスト/.test(SpreadsheetApp.getActiveSpreadsheet().getName()) ? '［テスト環境］' : ''; } catch (e) { return ''; } }
 // 問い合わせのメール（宛先はエラー通知と同じ）
 function notifyContact_(u, kind, body) {
