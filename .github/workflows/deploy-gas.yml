@@ -4,17 +4,23 @@
 #   CLASPRC_JSON … clasp login でできた .clasprc.json の中身
 #   SCRIPT_ID    … Apps Script の「プロジェクトの設定」にあるスクリプトID
 # デプロイID は config.js の URL（/macros/s/〈ここ〉/exec）から読み取るので、URL は変わらない
+# ブランチで行き先が変わる：test → テスト環境（config.js の API_URL_TEST）、main → 本番（API_URL）
+# テスト環境のデプロイIDがまだ無いときは、新しく作ってIDを知らせる（config.js の API_URL_TEST に貼る）
 name: Apps Script を更新
 
 on:
   push:
-    branches: [main]
+    branches: [main, test]
     paths: ['gas/**', 'test/**', '*.js', '.github/workflows/deploy-gas.yml']
   workflow_dispatch:
 
 concurrency:
   group: deploy-gas
   cancel-in-progress: false
+
+env:
+  # テスト用スプレッドシート「昼中華3連単（テスト）」の Apps Script（スクリプトIDは秘密の情報ではない）
+  SCRIPT_ID_TEST: 1UD67MRCoRu3XKBu5DjKwNkFA1CpEjIJLufWdgehozZILke-TuNnGiPx9
 
 jobs:
   test:
@@ -48,8 +54,18 @@ jobs:
             echo "ready=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          DEPLOYMENT_ID=$(grep -oE 'macros/s/[A-Za-z0-9_-]+' config.js | head -1 | sed 's#macros/s/##')
-          if [ -z "$DEPLOYMENT_ID" ]; then echo "::error::config.js からデプロイIDを読み取れませんでした"; exit 1; fi
+          if [ "${GITHUB_REF_NAME}" = "test" ]; then
+            echo "target=test" >> "$GITHUB_OUTPUT"; echo "label=テスト環境" >> "$GITHUB_OUTPUT"
+            echo "script_id=$SCRIPT_ID_TEST" >> "$GITHUB_OUTPUT"
+            DEPLOYMENT_ID=$(grep 'API_URL_TEST' config.js | grep -oE 'macros/s/[A-Za-z0-9_-]+' | head -1 | sed 's#macros/s/##')
+            echo "::notice::行き先：テスト環境（デプロイID: ${DEPLOYMENT_ID:-まだ無いので新しく作る}）"
+          else
+            echo "target=prod" >> "$GITHUB_OUTPUT"; echo "label=本番" >> "$GITHUB_OUTPUT"
+            echo "script_id=$SCRIPT_ID" >> "$GITHUB_OUTPUT"
+            DEPLOYMENT_ID=$(grep -E '^\s*API_URL:' config.js | grep -oE 'macros/s/[A-Za-z0-9_-]+' | head -1 | sed 's#macros/s/##')
+            if [ -z "$DEPLOYMENT_ID" ]; then echo "::error::config.js からデプロイIDを読み取れませんでした"; exit 1; fi
+            echo "::notice::行き先：本番"
+          fi
           echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
           echo "ready=true" >> "$GITHUB_OUTPUT"
 
@@ -72,7 +88,7 @@ jobs:
       - name: いまの Apps Script を取得して、Code.gs だけ差し替える
         if: steps.check.outputs.ready == 'true'
         env:
-          SCRIPT_ID: ${{ secrets.SCRIPT_ID }}
+          SCRIPT_ID: ${{ steps.check.outputs.script_id }}
         run: |
           mkdir -p work && cd work
           printf '{"scriptId":"%s","fileExtension":"gs"}' "$SCRIPT_ID" > .clasp.json
@@ -96,6 +112,11 @@ jobs:
           done
           if [ -z "$MAIN" ]; then MAIN="Code.gs"; fi
           cp ../gas/Code.gs "$MAIN"
+          # テスト環境：ウェブアプリの設定が無ければ、本番と同じ設定を入れる（自分として実行・誰でもアクセス可）
+          if [ "${{ steps.check.outputs.target }}" = "test" ] && ! jq -e '.webapp' appsscript.json > /dev/null; then
+            jq '.timeZone = "Asia/Tokyo" | .runtimeVersion = "V8" | .webapp = {"executeAs": "USER_DEPLOYING", "access": "ANYONE_ANONYMOUS"}' appsscript.json > m.json && mv m.json appsscript.json
+            echo "::notice::テスト環境にウェブアプリの設定を入れました"
+          fi
           echo "::notice::差し替えたファイル: $MAIN / プロジェクトのファイル: $(ls *.gs *.json | tr '\n' ' ')"
           ls -la
 
@@ -122,27 +143,41 @@ jobs:
         if: steps.check.outputs.ready == 'true' && !contains(github.event.head_commit.message, '[push-only]')
         run: |
           cd work
-          PREV=$(clasp deployments 2>/dev/null | grep -F "${{ steps.check.outputs.deployment_id }}" | grep -oE '@[0-9]+' | tr -d '@' | head -1)
-          echo "prev=$PREV" >> "$GITHUB_OUTPUT"
-          echo "::notice::これまでのバージョン: ${PREV:-不明}"
-          clasp deploy --deploymentId "${{ steps.check.outputs.deployment_id }}" --description "GitHub ${GITHUB_SHA::7}"
-          echo "### Apps Script を更新しました（${GITHUB_SHA::7}）" >> "$GITHUB_STEP_SUMMARY"
+          DID="${{ steps.check.outputs.deployment_id }}"
+          if [ -z "$DID" ]; then
+            # テスト環境の最初の1回：新しいデプロイを作る
+            clasp deploy --description "テスト環境 GitHub ${GITHUB_SHA::7}" | tee ../deploy.log
+            DID=$(grep -oE 'AKfy[A-Za-z0-9_-]+' ../deploy.log | head -1)
+            if [ -z "$DID" ]; then echo "::error::新しいデプロイのIDを読み取れませんでした"; exit 1; fi
+            echo "::notice::テスト環境のURL: https://script.google.com/macros/s/$DID/exec （config.js の API_URL_TEST に入れる）"
+          else
+            PREV=$(clasp deployments 2>/dev/null | grep -F "$DID" | grep -oE '@[0-9]+' | tr -d '@' | head -1)
+            echo "prev=$PREV" >> "$GITHUB_OUTPUT"
+            echo "::notice::これまでのバージョン: ${PREV:-不明}"
+            clasp deploy --deploymentId "$DID" --description "GitHub ${GITHUB_SHA::7}"
+          fi
+          echo "did=$DID" >> "$GITHUB_OUTPUT"
+          echo "### ${{ steps.check.outputs.label }}の Apps Script を更新しました（${GITHUB_SHA::7}）" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: 公開後の確認（本番のURLが正しく返事をするか。だめなら前のバージョンに戻す）
+      - name: 公開後の確認（URLが正しく返事をするか。本番でだめなら前のバージョンに戻す）
         if: steps.deploy.outcome == 'success'
         run: |
-          URL="https://script.google.com/macros/s/${{ steps.check.outputs.deployment_id }}/exec"
+          URL="https://script.google.com/macros/s/${{ steps.deploy.outputs.did }}/exec"
           OK=""
           for i in 1 2 3 4 5; do
             sleep 5
             BODY=$(curl -sL -m 30 "$URL" || true)
             if echo "$BODY" | grep -q '"ok":true'; then OK=1; break; fi
           done
-          if [ -n "$OK" ]; then echo "### 本番の確認：OK" >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          if [ -n "$OK" ]; then echo "### ${{ steps.check.outputs.label }}の確認：OK" >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          if [ "${{ steps.check.outputs.target }}" = "test" ]; then
+            echo "::warning::テスト環境のURLが正しく返事をしません。初めてのときは、テスト用の Apps Script で関数「初期設定」を実行して許可してください：$(echo "$BODY" | head -c 120)"
+            exit 0
+          fi
           echo "::error::本番のURLが正しく返事をしません：$(echo "$BODY" | head -c 200)"
           PREV="${{ steps.deploy.outputs.prev }}"
           if [ -n "$PREV" ]; then
-            cd work && clasp deploy --deploymentId "${{ steps.check.outputs.deployment_id }}" --versionNumber "$PREV" --description "自動で戻しました（${GITHUB_SHA::7} の確認に失敗）"
+            cd work && clasp deploy --deploymentId "${{ steps.deploy.outputs.did }}" --versionNumber "$PREV" --description "自動で戻しました（${GITHUB_SHA::7} の確認に失敗）"
             echo "::error::バージョン $PREV に戻しました"
           fi
           exit 1

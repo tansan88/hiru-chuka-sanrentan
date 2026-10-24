@@ -41,7 +41,7 @@ class Range {
   setNumberFormat(f) { if (f === '@') for (let j = 0; j < this.nc; j++) this.sh.textCols.add(this.c + j); return this; }
   setFontWeight() { return this; } setBackground() { return this; }
 }
-const SS = { getId: () => 'ss1', getUrl: () => 'https://docs.google.com/spreadsheets/d/ss1/edit', sheets: [new Sheet('シート1')],
+const SS = { name: '昼中華3連単', getName() { return this.name; }, getId: () => 'ss1', getUrl: () => 'https://docs.google.com/spreadsheets/d/ss1/edit', sheets: [new Sheet('シート1')],
   getSheetByName(n) { return this.sheets.find(s => s.name === n) || null; },
   insertSheet(n) { const s = new Sheet(n); this.sheets.push(s); return s; },
   getSheets() { return this.sheets; }, deleteSheet(s) { this.sheets = this.sheets.filter(x => x !== s); } };

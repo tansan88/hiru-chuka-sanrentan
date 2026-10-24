@@ -76,9 +76,13 @@ function doGet() {
   return json_({ ok: true, app: '昼中華3連単' });
 }
 
+// 画面の版がこれより古いと「開き直してください」と返す。古い画面と食い違う変更をしたときだけ上げる
+// （画面の版は app.js の APP_VERSION。版を送らない古い画面は 0 として扱う）
+const MIN_APP_VERSION = 0;
 function doPost(e) {
   let req = {};
   try { req = JSON.parse(e.postData.contents || '{}'); } catch (err) { return json_({ ok: false, error: '送信内容が読めませんでした' }); }
+  if (req.action !== 'clientError' && (Number(req.v) || 0) < MIN_APP_VERSION) return json_({ ok: false, reload: true, error: 'アプリが新しくなりました。画面を開き直してください' });
   // 読むだけの操作は順番待ちをしない（書き込みだけ1件ずつ処理する）
   const readOnly = ['state', 'history', 'week', 'hostState', 'clientError'].indexOf(req.action) >= 0;
   const lock = readOnly ? null : LockService.getScriptLock();
@@ -717,6 +721,8 @@ function reportError_(kind, action, message, detail) {
   } catch (e) { console.error(e); }
   try { notifyError_(kind, action, message); } catch (e) { console.error(e); }
 }
+// テスト用のスプレッドシート（名前に「テスト」を含む）から送るメールには印を付ける
+function mailTag_() { try { return /テスト/.test(SpreadsheetApp.getActiveSpreadsheet().getName()) ? '［テスト環境］' : ''; } catch (e) { return ''; } }
 // 問い合わせのメール（宛先はエラー通知と同じ）
 function notifyContact_(u, kind, body) {
   const to = String(getSetting_('エラー通知先') || '').trim() || Session.getEffectiveUser().getEmail();
@@ -733,7 +739,7 @@ function notifyContact_(u, kind, body) {
     '「問い合わせ」シートにも記録しています。',
     SpreadsheetApp.getActiveSpreadsheet().getUrl(),
   ].join('\n');
-  MailApp.sendEmail(to, '【昼中華3連単】問い合わせ（' + kind + '）' + u.nick + 'さんから', text);
+  MailApp.sendEmail(to, mailTag_() + '【昼中華3連単】問い合わせ（' + kind + '）' + u.nick + 'さんから', text);
 }
 function notifyError_(kind, action, message, force) {
   const props = PropertiesService.getScriptProperties();
@@ -760,7 +766,7 @@ function notifyError_(kind, action, message, force) {
     '',
     '※このメールは1時間に1通までです。',
   ].filter(x => x !== null).join('\n');
-  MailApp.sendEmail(to, '【昼中華3連単】エラーが起きました', body);
+  MailApp.sendEmail(to, mailTag_() + '【昼中華3連単】エラーが起きました', body);
   props.setProperties({ lastErrorMail: String(now), suppressedErrors: '0' });
   return true;
 }

@@ -12,12 +12,19 @@
 
   const $app = document.getElementById('app');
   const $layer = document.getElementById('layer');
-    const NO_API = !(window.CONFIG && CONFIG.API_URL);
+  if (/[?&]env=test(&|$)/.test(location.search) || /\/test\//.test(location.pathname)) document.body.insertAdjacentHTML('beforeend', '<div class="envtag" aria-hidden="true">テスト環境</div>');
+  // 画面の版。サーバーの MIN_APP_VERSION より小さいと「開き直してください」になる
+  const APP_VERSION = 2;
+  // /test/ で開いたとき、または ?env=test を付けたときはテスト環境につなぐ
+  const ENV_TEST = /\/test\//.test(location.pathname) || /[?&]env=test(&|$)/.test(location.search);
+  const API_URL = window.CONFIG ? (ENV_TEST ? CONFIG.API_URL_TEST : CONFIG.API_URL) || '' : '';
+  const NO_API = !API_URL;
 
   // ---------- 保存（使えないブラウザでも動くように） ----------
   const store = {
-    get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
-    set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} },
+    key: k => (ENV_TEST ? 'test_' : '') + k,
+    get(k) { try { return localStorage.getItem(store.key(k)); } catch (e) { return null; } },
+    set(k, v) { try { v == null ? localStorage.removeItem(store.key(k)) : localStorage.setItem(store.key(k), v); } catch (e) {} },
   };
 
   const S = { token: store.get('hc_token'), data: null, tab: store.get('hc_tab') || 'yoso', screen: null, editing: false, picks: {}, bet: '', host: null, hp: null, redo: {}, photo: {}, view: null, hist: null, authMode: 'login' };
@@ -26,11 +33,11 @@
   const errSeen = {}; let errSent = 0;
   function reportClientError(msg, detail, where) {
     try {
-      if (!(window.CONFIG && CONFIG.API_URL)) return;
+      if (!API_URL) return;
       msg = String(msg || '').slice(0, 300);
       if (!msg || errSeen[msg] || errSent >= 3 || /^Script error\.?$/i.test(msg) || /ResizeObserver/i.test(msg)) return;
       errSeen[msg] = 1; errSent++;
-      fetch(CONFIG.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, keepalive: true,
+      fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, keepalive: true,
         body: JSON.stringify({ action: 'clientError', msg, detail: String(detail || '').slice(0, 1500), where: where || '', page: location.href.slice(0, 200), ua: (navigator.userAgent || '').slice(0, 200) }) }).catch(() => {});
     } catch (e) {}
   }
@@ -85,16 +92,17 @@
   }
   async function api(action, body, opt) {
     opt = opt || {};
-    const req = Object.assign({ action, token: S.token }, body || {});
+    const req = Object.assign({ action, token: S.token, v: APP_VERSION }, body || {});
     if (opt.loading !== false) showLoading();
     try {
       let res;
       {
         if (NO_API) throw new Error('config.js に Apps Script のURLを設定してください');
-        const r = await fetch(CONFIG.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(req), redirect: 'follow' });
+        const r = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(req), redirect: 'follow' });
         res = await r.json();
       }
       if (!res.ok) {
+        if (res.reload) { showReload(); const e = new Error(res.error || ''); e.silent = true; throw e; }
         if (/ログインしてください$/.test(res.error || '')) { logout(true); }
         throw new Error(res.error || 'うまくいきませんでした');
       }
@@ -102,7 +110,7 @@
     } catch (e) {
       const msg = e && e.message && !/Failed to fetch|NetworkError|Load failed/i.test(e.message) ? e.message : '通信できませんでした。電波のよいところでやり直してください';
       if (e && typeof e === 'object') e.fromApi = true;
-      toast(msg); throw e;
+      if (!(e && e.silent)) toast(msg); throw e;
     } finally { if (opt.loading !== false) hideLoading(); }
   }
   async function refresh(opt) {
@@ -221,6 +229,11 @@
       S.editingInit = v.weekId + (S.editing ? 'e' : '');
       S.picks = v.myPred ? Object.assign({}, v.myPred.picks) : {};
       S.bet = v.myPred ? String(v.myPred.bet) : String(Math.min(1000, Math.floor(S.data.me.balance / 100) * 100) || '');
+      try {
+        const d = JSON.parse(sessionStorage.getItem(store.key('hc_draft')) || 'null');
+        sessionStorage.removeItem(store.key('hc_draft'));
+        if (d && d.weekId === v.weekId) { S.picks = d.picks || {}; S.bet = String(d.bet || ''); }
+      } catch (e) {}
     }
     const rows = v.menus.map(m => `<div class="tr">${waku(m.waku)}${nameCell(m, true)}${oddsCell(m)}${DAYS.map(d => `<button class="dot ${S.picks[d] === m.waku ? 'on' : ''}" data-day="${d}" data-waku="${m.waku}" aria-pressed="${S.picks[d] === m.waku}" aria-label="${d} ${esc(m.name)}"></button>`).join('')}</div>`).join('');
     return raceHead(v, '<span class="pill open">受付中</span>') + mumble(v) + oddsNote(v) +
@@ -457,6 +470,17 @@
     $layer.innerHTML = html;
     $layer.querySelectorAll('[data-close]').forEach(b => b.onclick = closeLayer);
     document.addEventListener('keydown', escClose);
+  }
+  // 画面が古いとき：選んでいた予想を残して、開き直してもらう（閉じるボタンは出さない）
+  function showReload() {
+    try { const v = S.data && S.data.current; if (v) sessionStorage.setItem(store.key('hc_draft'), JSON.stringify({ weekId: v.weekId, picks: S.picks, bet: S.bet })); } catch (e) {}
+    openLayer(`<div class="scrim"></div><div class="rl" role="alertdialog" aria-labelledby="rlt" aria-describedby="rld">
+      ${chefImg('surprise', 'rl-chef')}
+      <b id="rlt">アプリが新しくなりました</b>
+      <span id="rld">画面を開き直すと、新しい版で使えます。</span>
+      <small>いまの操作はまだ送られていません。<br>開き直したあと、もう一度お願いします。</small>
+      <button class="btn gold block" id="rlgo">開き直す</button></div>`);
+    document.getElementById('rlgo').onclick = () => location.reload();
   }
   function closeLayer() { $layer.innerHTML = ''; document.removeEventListener('keydown', escClose); }
   function escClose(e) { if (e.key === 'Escape') closeLayer(); }
