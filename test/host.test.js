@@ -97,4 +97,13 @@ ok(!r.ok && G.DriveApp.trashed.length === 1, '文字が空でもファイルは�
 G.Drive._text = 'ランチ\n¥1,000';
 r = call('readMenu', { token: h, image: img });
 ok(r.ok && r.found === 0, '番号がない画像は0品', r);
+// 本物の Drive は「コード 200 のエラー」で、化けた文字を返してくる
+G.Drive._text = AIR; G.Drive._as200 = true;
+r = call('readMenu', { token: h, image: img });
+ok(r.ok && r.found === 5 && r.names[1] === 'ニラと玉子の炒め', 'コード 200 のエラーから文字を取り出す', r);
+G.Drive._as200 = false;
+ok(ctx.fixMojibake_('麻婆豆腐') === '麻婆豆腐', '読める文字はそのまま');
+ok(ctx.fixMojibake_(Buffer.from('1.麻婆豆腐 ¥1,000', 'utf8').toString('latin1')) === '1.麻婆豆腐 ¥1,000', 'Latin-1 の化けを戻す');
+const cp = s => [...Buffer.from(s, 'utf8')].map(b => ({ 0x80: '€', 0x83: 'ƒ', 0x9C: 'œ' }[b] || String.fromCharCode(b))).join('');
+ok(ctx.fixMojibake_(cp('ラーメン')) === 'ラーメン', 'Windows-1252 の化けも戻す', ctx.fixMojibake_(cp('ラーメン')));
 console.log('PASS ' + pass + ' FAIL ' + fail);

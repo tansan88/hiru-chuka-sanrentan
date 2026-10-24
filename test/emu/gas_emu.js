@@ -59,7 +59,7 @@ const G = {
     DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
     computeDigest: (alg, s) => [...crypto.createHash('sha256').update(s, 'utf8').digest()].map(b => b > 127 ? b - 256 : b),
     base64Decode: s => [...Buffer.from(s, 'base64')],
-    newBlob: (bytes, mime, name) => ({ bytes, mime, name }),
+    newBlob: (bytes, mime, name) => ({ bytes, mime, name, getDataAsString: () => Buffer.from((bytes || []).map(b => b & 255)).toString('utf8') }),
     formatDate: (d, tz, f) => { const p = n => String(n).padStart(2, '0'); const x = new Date(d.toLocaleString('en-US', { timeZone: tz })); return f.replace('yyyy', x.getFullYear()).replace('MM', p(x.getMonth() + 1)).replace('dd', p(x.getDate())).replace('HH', p(x.getHours())).replace('mm', p(x.getMinutes())); },
   },
   DriveApp: (() => { const folders = {}; let n = 0, clock = 0;
@@ -75,11 +75,11 @@ const G = {
   // Drive API（詳細サービス）の真似：文字認識の結果は Drive._text で決める
   Drive: { _text: '', _fail: null, _n: 0, Files: {
     create(meta, blob, opt) { if (G.Drive._fail) throw new Error(G.Drive._fail); G.Drive._last = { meta, blob, opt }; return { id: 'ocr' + (++G.Drive._n) }; },
-    export(id, mime) { return { getDataAsString: () => G.Drive._text }; },
+    export(id, mime) { if (G.Drive._as200) throw new Error('レスポンス コード: 200。メッセージ: ' + Buffer.from(G.Drive._text, 'utf8').toString('latin1') + '。'); return { getDataAsString: () => G.Drive._text }; },
   } },
 };
 module.exports = codePath => {
   const code = fs.readFileSync(codePath, 'utf8');
-  const ctx = new Function(...Object.keys(G), code + '\n;return { doPost, doGet, lastBackupAt_, 初期設定, API, SHEETS, バックアップを設定する, バックアップを取る, 定期バックアップ, エラー通知のテスト, ログインロックを解除する, reportError_, parseMenuText_, __reset: () => { SETTINGS_ = null; } };')(...Object.values(G));
+  const ctx = new Function(...Object.keys(G), code + '\n;return { doPost, doGet, lastBackupAt_, 初期設定, API, SHEETS, バックアップを設定する, バックアップを取る, 定期バックアップ, エラー通知のテスト, ログインロックを解除する, reportError_, parseMenuText_, fixMojibake_, __reset: () => { SETTINGS_ = null; } };')(...Object.values(G));
   return { ctx, SS, files, coerce, G };
 };

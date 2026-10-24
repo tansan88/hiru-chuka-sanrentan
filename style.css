@@ -451,3 +451,9 @@ button.ph:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 .post-foot .lnk{align-self:flex-start;padding:4px 0}
 .mi:has(.tg) input{padding-right:46px}
 .mi:has(.tg.o) input{padding-right:96px}
+/* iPhone の日付・日時の欄は、そのままだと中身の幅で広がって画面からはみ出す（ページの右に空きができる）ので、ほかの欄と同じ幅にそろえる */
+input[type=date],input[type=datetime-local]{-webkit-appearance:none;appearance:none;display:block;width:100%;max-width:100%;min-width:0;min-height:46px;line-height:1.4;text-align:left;background:#FFF;color:var(--ink)}
+input[type=date]::-webkit-date-and-time-value,input[type=datetime-local]::-webkit-date-and-time-value{text-align:left;margin:0}
+input[type=date]:disabled{color:var(--sub);background:var(--bg)}
+.field{min-width:0}
+#app{overflow-x:clip}
