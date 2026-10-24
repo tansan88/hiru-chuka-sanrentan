@@ -80,7 +80,8 @@ function doPost(e) {
   const lock = readOnly ? null : LockService.getScriptLock();
   try {
     if (lock) lock.waitLock(20000);
-    const fn = API[req.action];
+    // API に自分で定義した操作だけを受け付ける（constructor など、元から備わっている名前は通さない）
+    const fn = typeof req.action === 'string' && Object.prototype.hasOwnProperty.call(API, req.action) ? API[req.action] : null;
     if (!fn) throw new UserError('不明な操作です');
     const out = fn(req) || {};
     out.ok = true;
