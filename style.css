@@ -459,3 +459,10 @@ input[type=date]::-webkit-date-and-time-value,input[type=datetime-local]::-webki
 input[type=date]:disabled{color:var(--sub);background:var(--bg)}
 .field{min-width:0}
 #app{overflow-x:clip}
+
+.xm{width:50%;height:50%;display:block}
+.dlock{font-size:12px;color:var(--sub);text-align:center}
+.pstat{font-size:12px;font-weight:700;text-align:center;padding:6px 8px;border-radius:6px}
+.pstat.run{color:var(--sub);background:#F2F4F3}
+.pstat.ok{color:var(--turf);background:#E7F3EC}
+.pstat.ng{color:var(--red);background:#FCEBEC}

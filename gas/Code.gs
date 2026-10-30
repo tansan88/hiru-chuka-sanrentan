@@ -439,6 +439,8 @@ const API = {
         if (name.length > 30) fail_('料理名は30文字までです');
       }
     }
+    const prev = db.results.find(x => x.週ID === w.週ID && x.曜日 === day);
+    if (prev && dayPassed_(w.週ID, day)) fail_(day + '曜の発表日を過ぎたので、食べたものは変えられません');
     let photoId = '';
     if (r.photo && r.photo.data) {
       const blob = Utilities.newBlob(Utilities.base64Decode(r.photo.data), r.photo.mime || 'image/jpeg', w.週ID + '_' + day + '.jpg');
@@ -447,7 +449,6 @@ const API = {
       file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
       photoId = file.getId();
     }
-    const prev = db.results.find(x => x.週ID === w.週ID && x.曜日 === day);
     const row = [txt_(w.週ID), day, waku, txt_(name), photoId || (prev && waku === Number(prev.枠) ? prev.写真ID : ''), new Date()];
     if (prev) sheet_('結果').getRange(prev._row, 1, 1, row.length).setValues([row]);
     else sheet_('結果').appendRow(row);
@@ -516,11 +517,16 @@ function weekView_(w, u, db, withSettle) {
   }
   return v;
 }
+// 発表した日（火なら週ID、水なら翌日…）が過ぎたら、食べたものは変えられない
+function dayPassed_(weekId, day) {
+  const [y, mo, d] = String(weekId).split('-').map(Number);
+  return new Date() >= new Date(y, mo - 1, d + DAYS.indexOf(day) + 1);
+}
 function resultsOf_(db, weekId) {
   const out = {};
   db.results.filter(x => x.週ID === weekId).forEach(x => {
     const m = db.menus.find(y => y.週ID === weekId && Number(y.枠) === Number(x.枠));
-    out[x.曜日] = { waku: Number(x.枠), name: String(x.品名), photo: x.写真ID ? 'https://drive.google.com/thumbnail?id=' + x.写真ID + '&sz=w1000' : '', other: !!m && String(m.品名) === OTHER_NAME };
+    out[x.曜日] = { waku: Number(x.枠), name: String(x.品名), photo: x.写真ID ? 'https://drive.google.com/thumbnail?id=' + x.写真ID + '&sz=w1000' : '', other: !!m && String(m.品名) === OTHER_NAME, locked: dayPassed_(weekId, x.曜日) };
   });
   return out;
 }

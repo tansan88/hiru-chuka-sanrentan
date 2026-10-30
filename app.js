@@ -23,6 +23,8 @@
   const POST_MODE = /[?&]post(=|&|$)/.test(location.search);
   const HIRU_STAMP = ':hirucyuuka:';
   const OTHER_NAME = 'その他';
+  // はずれの「×」は文字だと円の真ん中に来ないので、線で描く
+  const MISS_X = '<svg class="xm" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.6 2.6l4.8 4.8M7.4 2.6l-4.8 4.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
   const CAM_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13.5" r="3.6" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
 
   // ---------- 保存（使えないブラウザでも動くように） ----------
@@ -32,7 +34,7 @@
     set(k, v) { try { v == null ? localStorage.removeItem(store.key(k)) : localStorage.setItem(store.key(k), v); } catch (e) {} },
   };
 
-  const S = { post: { ph: null, name: '' }, dayOther: {}, token: store.get('hc_token'), data: null, tab: store.get('hc_tab') || 'yoso', screen: null, editing: false, picks: {}, bet: '', host: null, hp: null, redo: {}, photo: {}, view: null, hist: null, authMode: 'login' };
+  const S = { post: { ph: null, name: '' }, dayOther: {}, token: store.get('hc_token'), data: null, tab: store.get('hc_tab') || 'yoso', screen: null, editing: false, picks: {}, bet: '', host: null, hp: null, redo: {}, photo: {}, sending: {}, view: null, hist: null, authMode: 'login' };
 
   // ---------- 画面で起きたエラーをサーバーに知らせる（1回の表示で3件まで・同じ内容は1回だけ） ----------
   const errSeen = {}; let errSent = 0;
@@ -302,7 +304,7 @@
       const cells = DAYS.map(d => {
         const r = res[d], mine = p && p.picks[d] === m.waku;
         if (r && r.waku === 0) return mine ? '<span class="mk cancel" aria-label="中止">−</span>' : '<span></span>';
-        if (mine) { if (!r) return '<span class="mk wait" aria-label="予想（発表待ち）"></span>'; return r.waku === m.waku ? '<span class="mk hit" aria-label="当たり">✓</span>' : '<span class="mk miss" aria-label="はずれ">×</span>'; }
+        if (mine) { if (!r) return '<span class="mk wait" aria-label="予想（発表待ち）"></span>'; return r.waku === m.waku ? '<span class="mk hit" aria-label="当たり">✓</span>' : '<span class="mk miss" aria-label="はずれ">' + MISS_X + '</span>'; }
         if (r && r.waku === m.waku) return `<span class="bowl" role="img" aria-label="${d}曜に食べたもの">${BOWL('#C8102E')}</span>`;
         return '<span></span>';
       }).join('');
@@ -331,7 +333,7 @@
       dock = '<div class="dock"><span style="font-size:13px">今週は予想していません。食べたものは毎日ここに出ます。</span></div>';
     }
     return raceHead(v, '<span class="pill run">開催中</span>') +
-      `<div class="legend"><span><span class="mk wait"></span>予想</span><span><span class="mk hit">✓</span>当たり</span><span><span class="mk miss">×</span>はずれ</span><span><span class="bowl" style="width:20px;height:20px">${BOWL('#C8102E')}</span>食べたもの</span>${cancelled.length ? '<span><span class="mk cancel">−</span>中止</span>' : ''}</div>` +
+      `<div class="legend"><span><span class="mk wait"></span>予想</span><span><span class="mk hit">✓</span>当たり</span><span><span class="mk miss">${MISS_X}</span>はずれ</span><span><span class="bowl" style="width:20px;height:20px">${BOWL('#C8102E')}</span>食べたもの</span>${cancelled.length ? '<span><span class="mk cancel">−</span>中止</span>' : ''}</div>` +
       `<div class="tbl"><div class="tr th"><span>枠</span><span>メニュー</span><span>オッズ</span>${heads.map(h => `<span>${h}</span>`).join('')}</div>${rows}</div>` + dock;
   }
   function hostWeekView(v) {
@@ -390,7 +392,7 @@
     const triple = st && st.triple > 0;
     const seal = cancelled ? '<span class="seal gray">返還</span>' : '<span class="seal">確定</span>';
     const head = `<div class="race"><div class="row"><div style="display:flex;flex-direction:column"><span style="font-weight:900;font-size:17px">${esc(v.title)}</span><span class="when">${esc(v.dates)}</span></div>${seal}</div></div>`;
-    const marks = v.marks.map(k => `<span class="${k === 'hit' ? 'hit' : k === 'cancel' ? 'cancel' : k === 'miss' ? 'miss' : 'none'}">${k === 'hit' ? '✓' : k === 'cancel' ? '−' : k === 'miss' ? '×' : ''}</span>`).join('');
+    const marks = v.marks.map(k => `<span class="${k === 'hit' ? 'hit' : k === 'cancel' ? 'cancel' : k === 'miss' ? 'miss' : 'none'}">${k === 'hit' ? '✓' : k === 'cancel' ? '−' : k === 'miss' ? MISS_X : ''}</span>`).join('');
     let sum;
     if (!p) sum = `<div class="sum"><div class="l"><small>今週の収支</small><span class="big" style="font-size:20px">予想していません</span></div><div class="ms">${marks}</div></div>`;
     else if (cancelled) sum = `<div class="sum"><div class="l"><small>中止の日があるため、今週は全額返還</small><span class="big">±0<span> pt</span></span><small>使った ${fmt(p.bet)}pt ／ <b style="color:var(--gold)">全額返還</b></small></div><div class="ms">${marks}</div></div>`;
@@ -402,7 +404,7 @@
         const k = v.marks[i];
         if (k === 'cancel') return `<div class="r"><b>${d}</b><span class="m cancel">−</span><span style="color:var(--sub)">中止</span><span class="v">—</span></div>`;
         const val = cancelled ? '<span class="v">—</span>' : k === 'hit' ? `<span class="v plus">+${fmt(st ? st.daily[d] : 0)}</span>` : '<span class="v">0</span>';
-        return `<div class="r"><b>${d}</b><span class="m ${k === 'hit' ? 'hit' : 'miss'}">${k === 'hit' ? '✓' : '×'}</span><span style="${k === 'hit' ? '' : 'color:var(--sub)'}">${esc(m.name === OTHER_NAME && res[d] && res[d].other ? m.name + '（' + res[d].name + '）' : m.name)} <small>${oddsTxt(m.odds)}倍</small></span>${val}</div>`;
+        return `<div class="r"><b>${d}</b><span class="m ${k === 'hit' ? 'hit' : 'miss'}">${k === 'hit' ? '✓' : MISS_X}</span><span style="${k === 'hit' ? '' : 'color:var(--sub)'}">${esc(m.name === OTHER_NAME && res[d] && res[d].other ? m.name + '（' + res[d].name + '）' : m.name)} <small>${oddsTxt(m.odds)}倍</small></span>${val}</div>`;
       }).join('');
       const tv = cancelled ? '<span class="v">不成立</span>' : triple ? `<span class="v big">+${fmt(st.triple)}</span>` : '<span class="v">0</span>';
       brk = `<div class="brk"><span class="h">内訳</span>${rows}<div class="r t ${triple ? 'win' : ''}"><span>${triple ? '<b>3連単</b>' : '3連単'}</span>${tv}</div></div>`;
@@ -478,10 +480,14 @@
     setTimeout(() => URL.revokeObjectURL(url), 4000);
     toast('写真を保存し、文字をコピーしました。Slackに貼り付けてください');
   }
-  function openSlackSheet(ph, name) {
+  function slackStat(day, kind, msg) {
+    const el = document.getElementById('pstat');
+    if (el && el.dataset.day === day) { el.className = 'pstat ' + kind; el.textContent = msg; }
+  }
+  function openSlackSheet(ph, name, day) {
     openLayer(`<div class="scrim" data-close></div><div class="sheet" role="dialog" aria-label="Slackに送る"><div class="grab"><span></span></div>
       <div class="sh"><h2>Slackに送る</h2><button class="xbtn" data-close aria-label="閉じる">✕</button></div>
-      <div class="post-sheet"><img src="${photoSrc(ph)}" alt="撮った写真"><div class="ptxt">${esc(name)} <span>${HIRU_STAMP}</span></div>
+      <div class="post-sheet"><img src="${photoSrc(ph)}" alt="撮った写真"><div class="ptxt">${esc(name)} <span>${HIRU_STAMP}</span></div>${day ? `<span class="pstat run" id="pstat" data-day="${day}">${day}曜を発表しています…（先に送ってもだいじょうぶです）</span>` : ''}
       <button class="btn slack block" id="psend">Slackに送る</button>
       <span class="pnote"><b>①</b> 共有の画面で Slack を選び、送り先のチャンネルを選ぶ<br><b>②</b> メッセージ欄を長押しして「ペースト」（上の文字はコピー済み）<br><b>③</b> 送信</span>
       <button class="lnk" data-close style="color:var(--sub)">閉じる</button></div></div>`);
@@ -631,7 +637,7 @@
   function renderSub() {
     const sc = S.screen;
     if (sc === 'history') {
-      const rows = (S.hist || []).map(h => `<button class="hrow" data-w="${esc(h.weekId)}"><div style="min-width:0"><b>${esc(h.title)}</b><small>${esc(h.dates)}</small></div><div class="mm">${h.marks.map(k => `<span class="${k === 'hit' ? 'hit' : k === 'cancel' ? 'cancel' : k === 'miss' ? 'miss' : 'none'}">${k === 'hit' ? '✓' : k === 'cancel' ? '−' : k === 'miss' ? '×' : ''}</span>`).join('')}</div><span class="nv" style="color:${h.net > 0 ? 'var(--turf)' : 'var(--sub)'}">${h.played ? (h.status === '返還' ? '±0' : signed(h.net || 0)) : '—'}</span><span style="color:var(--mute)">›</span></button>`).join('');
+      const rows = (S.hist || []).map(h => `<button class="hrow" data-w="${esc(h.weekId)}"><div style="min-width:0"><b>${esc(h.title)}</b><small>${esc(h.dates)}</small></div><div class="mm">${h.marks.map(k => `<span class="${k === 'hit' ? 'hit' : k === 'cancel' ? 'cancel' : k === 'miss' ? 'miss' : 'none'}">${k === 'hit' ? '✓' : k === 'cancel' ? '−' : k === 'miss' ? MISS_X : ''}</span>`).join('')}</div><span class="nv" style="color:${h.net > 0 ? 'var(--turf)' : 'var(--sub)'}">${h.played ? (h.status === '返還' ? '±0' : signed(h.net || 0)) : '—'}</span><span style="color:var(--mute)">›</span></button>`).join('');
       $app.innerHTML = subBar('過去の結果') + `<div style="background:#FFF"><div class="hrow th"><span>レース</span><span>火水木</span><span style="text-align:right">収支</span><span></span></div>${rows || '<p style="padding:16px;color:var(--sub);margin:0">まだ結果はありません</p>'}</div>`;
       document.getElementById('back').onclick = () => { S.screen = null; render(); };
       $app.querySelectorAll('[data-w]').forEach(b => b.onclick = async () => { try { const r = await api('week', { weekId: b.dataset.w }); S.view = r.week; S.screen = 'week'; render(); window.scrollTo(0, 0); } catch (e) {} });
@@ -851,7 +857,7 @@
     const cards = DAYS.map(d => {
       const r = res[d];
       if (r && !S.redo[d]) {
-        return `<div class="dayc"><div class="t"><span>${d}曜</span><span class="done">${r.waku === 0 ? '中止' : r.waku + ' ' + esc(r.name) + (r.other ? '（' + OTHER_NAME + '）' : '')} ✓ 発表済み</span></div>${r.photo ? `<button class="thumb ph" data-zoom="${d}" aria-label="${d}曜の写真を拡大"><img src="${esc(r.photo)}" alt="" referrerpolicy="no-referrer"></button>` : ''}<button class="btn gray" data-redo="${d}">やり直す</button></div>`;
+        return `<div class="dayc"><div class="t"><span>${d}曜</span><span class="done">${r.waku === 0 ? '中止' : r.waku + ' ' + esc(r.name) + (r.other ? '（' + OTHER_NAME + '）' : '')} ✓ 発表済み</span></div>${r.photo ? `<button class="thumb ph" data-zoom="${d}" aria-label="${d}曜の写真を拡大"><img src="${esc(r.photo)}" alt="" referrerpolicy="no-referrer"></button>` : ''}${r.locked ? '<span class="dlock">発表日を過ぎたので、変更できません</span>' : `<button class="btn gray" data-redo="${d}">やり直す</button>`}</div>`;
       }
       if (d !== next) return `<div class="dayc" style="color:var(--mute)"><div class="t"><span>${d}曜</span><span style="font-size:12px;font-weight:500">${DAYS[DAYS.indexOf(d) - 1]}曜のあとに登録</span></div></div>`;
       const sel = (S.daySel || {})[d] || (r && S.redo[d] ? r.waku : 0);
@@ -866,7 +872,7 @@
         ${isOther ? `<label class="field oth"><span>実際に食べた料理名</span><input id="dother" maxlength="30" value="${esc(S.dayOther[d] || '')}" placeholder="例：エビチリ"></label>` : ''}
         ${sel ? (ph ? `<div class="shot"><button class="ph" data-zoomnew aria-label="撮った写真を拡大"><img src="${photoSrc(ph)}" alt="撮った写真"></button><div><b>撮った写真</b><button class="lnk" id="dcam">撮り直す</button><button class="lnk" id="dalb">アルバムから選ぶ</button></div></div>`
           : `<div class="shot none"><button class="btn gray" id="dcam">${CAM_ICON}写真を撮る</button><button class="lnk" id="dalb">アルバムから選ぶ</button></div>`) : ''}
-        <button class="btn green" id="dpub" ${sel ? '' : 'disabled'}>${d}曜の食べたものを発表する</button>
+        <button class="btn green" id="dpub" ${sel && !S.sending[d] ? '' : 'disabled'}>${S.sending[d] ? '発表しています…' : d + '曜の食べたものを発表する'}</button>
         <button class="btn gray" id="dcancel">${d}曜は中止にする（メニュー外・休み）</button></div>`;
     }).join('');
     const all = DAYS.every(d => res[d]);
@@ -966,21 +972,37 @@
       const other = m && m.name === OTHER_NAME ? String(S.dayOther[next] || '').trim() : '';
       if (m && m.name === OTHER_NAME && !other) { toast('実際に食べた料理名を入れてください'); const o = document.getElementById('dother'); if (o) o.focus(); return; }
       const day = next;
+      // 返事が届かなかっただけで、サーバーには登録できていることがある。読み直して確かめる
+      const register = async () => {
+        try { await api('registerDay', { weekId: w.weekId, day, waku: wk, photo: ph, otherName: other }, { loading: false, quiet: true }); }
+        catch (e) {
+          if (!e.network) { toast(e.message); throw e; }
+          const h = await api('hostState', {}, { loading: false });
+          const got = h.week && h.week.results && h.week.results[day];
+          if (!(got && got.waku === wk && (!ph || got.photo))) { toast('通信できませんでした。電波のよいところでやり直してください'); throw e; }
+        }
+        delete S.redo[day]; delete S.photo[day]; delete S.daySel[day]; delete S.dayOther[day];
+      };
+      if (ph) {
+        // 写真があるときは、登録の返事を待たずに Slack の画面を出す（登録は後ろで進める）
+        if (S.sending[day]) return;
+        S.sending[day] = true; render();
+        openSlackSheet(ph, other || m.name, day);
+        try {
+          await register();
+          slackStat(day, 'ok', day + '曜を発表しました');
+          toast(day + '曜を発表しました');
+        } catch (e) {
+          slackStat(day, 'ng', '発表できませんでした。閉じて、もう一度「発表する」を押してください');
+        } finally {
+          delete S.sending[day];
+          loadHost(true, { quiet: true });
+        }
+        return;
+      }
       try {
-        await busy(async () => {
-          try { await api('registerDay', { weekId: w.weekId, day, waku: wk, photo: ph, otherName: other }, { loading: false, quiet: true }); }
-          catch (e) {
-            // 返事が届かなかっただけで、サーバーには登録できていることがある。読み直して確かめる
-            if (!e.network) { toast(e.message); throw e; }
-            const h = await api('hostState', {}, { loading: false });
-            const got = h.week && h.week.results && h.week.results[day];
-            if (!(got && got.waku === wk && (!ph || got.photo))) { toast('通信できませんでした。電波のよいところでやり直してください'); throw e; }
-          }
-          delete S.redo[day]; delete S.photo[day]; delete S.daySel[day]; delete S.dayOther[day];
-        });
+        await busy(register);
         toast(day + '曜を' + (wk === 0 ? '中止にしました' : '発表しました'));
-        // 登録できたらすぐに Slack へ送れるようにし、ホスト画面の読み直しは後ろで行う（待ち時間を減らす）
-        if (ph) openSlackSheet(ph, other || m.name);
         loadHost(true, { quiet: true });
       } catch (e) {}
     };

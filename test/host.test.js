@@ -63,6 +63,24 @@ r = call('hostState', { token: h });
 ok(r.week.results.火.name === 'エビチリ' && r.week.results.火.other === true && r.week.results.火.waku === 8 && /thumbnail/.test(r.week.results.火.photo), '火は「エビチリ」（その他）', r.week.results.火);
 ok(r.week.results.水.name === '豚肉とナスのピリ辛' && r.week.results.水.other === false, '水はメニュー名のまま', r.week.results.水);
 ok(call('registerDay', { token: h, weekId: wk, day: '木', waku: 3 }).ok, '木');
+
+// ---- 発表日を過ぎたら変えられない（木曜の昼にする：火・水は過ぎている） ----
+{
+  const RealDate = Date, [y, mo, d] = wk.split('-').map(Number), fake = new RealDate(y, mo - 1, d + 2, 12).getTime();
+  global.Date = class extends RealDate { constructor(...a) { if (a.length) super(...a); else super(fake); } static now() { return fake; } };
+  try {
+    r = call('registerDay', { token: h, weekId: wk, day: '火', waku: 2 });
+    ok(!r.ok && /発表日を過ぎた/.test(r.error), '火は発表日を過ぎたので変えられない', r);
+    r = call('registerDay', { token: h, weekId: wk, day: '水', waku: 2 });
+    ok(!r.ok && /発表日を過ぎた/.test(r.error), '水も変えられない', r);
+    ok(call('registerDay', { token: h, weekId: wk, day: '木', waku: 3 }).ok, '木は当日なので変えられる');
+    r = call('hostState', { token: h });
+    ok(r.week.results.火.locked === true && r.week.results.水.locked === true && r.week.results.木.locked === false, '画面には火・水だけ「変更できない」と出す', r.week.results);
+    ok(r.week.results.火.name === 'エビチリ', '火の登録はそのまま', r.week.results.火);
+  } finally { global.Date = RealDate; }
+  r = call('hostState', { token: h });
+  ok(r.week.results.木.locked === false, '発表日の前は変えられる', r.week.results.木);
+}
 r = call('settle', { token: h, weekId: wk });
 ok(r.ok && r.status === '確定', '確定できる', r);
 r = call('state', { token: g });
