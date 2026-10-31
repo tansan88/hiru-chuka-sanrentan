@@ -713,8 +713,7 @@
     if (sc === 'refill') {
       const F = S.data.me.refill || { n: 1, rate: 1 };
       if (F.blocked) {
-        $app.innerHTML = subBar('ptを補充する') + `<div class="rf"><div class="notice cream">${chefImg('sorry')}<div><b>今週の補充はここまでです</b><span>2回目からの補充は、その週の3連単に予想した人だけが受け取れます。月曜になると、また満額で補充できます。</span></div></div>
-          <p class="rf-rule">${esc(refillRuleTxt())}</p></div><div class="rf-chef">${chefImg('smile')}</div>`;
+        $app.innerHTML = subBar('ptを補充する') + `<div class="rf rf-stop"><div class="notice cream">${chefImg('sorry')}<div><b>今週の補充はここまでです</b><span>2回目からの補充は、その週の3連単に予想した人だけが受け取れます。月曜になると、また満額で補充できます。</span></div></div></div>`;
         document.getElementById('back').onclick = () => { S.screen = null; S.rf = null; render(); };
         return;
       }

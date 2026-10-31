@@ -469,3 +469,4 @@ input[type=date]:disabled{color:var(--sub);background:var(--bg)}
 
 .rf-nth{margin:0;font-size:13px;line-height:1.6;color:var(--ink);background:#FFF4D6;border-radius:6px;padding:8px 10px}
 .rf-rule{margin:4px 0 0;font-size:12px;line-height:1.6;color:var(--sub)}
+.rf.rf-stop{flex:1;justify-content:center}
