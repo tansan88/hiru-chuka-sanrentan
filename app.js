@@ -347,9 +347,9 @@
   function zeroView(v) {
     const rows = v.menus.map(m => `<div class="tr">${waku(m.waku)}${nameCell(m, false)}${oddsCell(m)}${DAYS.map(() => '<button class="dot" disabled aria-hidden="true"></button>').join('')}</div>`).join('');
     return raceHead(v, '<span class="pill open">受付中</span>') +
-      `<div class="notice pink">${chefImg('sorry')}<div><b style="color:var(--red)">${S.data.me.balance <= 0 ? '持ち点がなくなりました' : '持ち点が100ptを切りました'}</b><span>クイズかレビューで、すぐに補充できます。</span></div></div>
+      `<div class="notice pink">${chefImg('sorry')}<div><b style="color:var(--red)">${S.data.me.balance <= 0 ? '持ち点がなくなりました' : '持ち点が100ptを切りました'}</b><span>${refillBlocked() ? '今週の補充はここまでです。月曜になると、また満額で補充できます。' : 'クイズかレビューで、すぐに補充できます。'}</span></div></div>
       <div class="tbl" style="margin-top:12px;opacity:.5">${tableHead(DAYS)}${rows}</div>
-      <div class="dock"><span class="rf-hint">補充すると、今週の予想にそのまま参加できます</span><button class="btn gold block" data-act="refill">ptを補充する</button></div>`;
+      ${refillBlocked() ? '' : '<div class="dock"><span class="rf-hint">補充すると、今週の予想にそのまま参加できます</span><button class="btn gold block" data-act="refill">ptを補充する</button></div>'}`;
   }
   function bindYoso() {
     $app.querySelectorAll('[data-go]').forEach(b => b.onclick = () => switchTab(b.dataset.go));
@@ -625,7 +625,7 @@
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--sub)">
         <div><b style="color:var(--ink)">中止の日</b>　メニュー外を食べた日や休みの日がある週は、使ったptを全額返します。当たり・はずれは記録だけ残ります。</div>
-        <div><b style="color:var(--ink)">持ち点が100ptを切ったら</b>　「ptを補充する」から、豆知識クイズ（＋${fmt((S.data.me.refillPt || {}).quiz || 5000)}pt）かレビュー（＋${fmt((S.data.me.refillPt || {}).review || 15000)}pt）で補充できます。何回でも使えます。</div>
+        <div><b style="color:var(--ink)">持ち点が100ptを切ったら</b>　「ptを補充する」から、豆知識クイズ（満額＋${fmt(fullPt('quiz'))}pt）かレビュー（満額＋${fmt(fullPt('review'))}pt）で補充できます。${esc(refillRuleTxt())}</div>
       </div></div></div>`);
   }
 
@@ -689,6 +689,14 @@
   }
 
   // ---------- pt補充 ----------
+  // 割合を「半分」「2割」のような言い方にする
+  function rateTxt(r) { r = Number(r); if (r === 0.5) return '半分'; const t = Math.round(r * 10); return Math.abs(r * 10 - t) < 1e-9 ? t + '割' : Math.round(r * 100) + '%'; }
+  function refillRuleTxt() {
+    const R = S.data.me.refillRule || { rate2: 0.5, rate3: 0.2, needFrom: 2 };
+    return `その週の1回目は満額、2回目は${rateTxt(R.rate2)}、3回目からは${rateTxt(R.rate3)}を受け取れます（月曜に満額へ戻ります）。` + (R.needFrom > 0 ? `${R.needFrom}回目からは、その週の3連単に予想した人だけが補充できます。` : '');
+  }
+  function fullPt(k) { const R = S.data.me.refillFull || S.data.me.refillPt || {}; return R[k] || (k === 'quiz' ? 5000 : 15000); }
+  function refillBlocked() { const f = S.data && S.data.me && S.data.me.refill; return !!(f && f.blocked); }
   function openRefill() {
     if (!S.data.me.canRefill) { toast('持ち点が100pt以上あるので、いまは補充できません'); return; }
     S.rf = { form: {} }; S.screen = 'refill'; render(); window.scrollTo(0, 0);
@@ -703,10 +711,19 @@
     const R = S.data.me.refillPt || { quiz: 5000, review: 15000 };
     const rf = S.rf || (S.rf = { form: {} });
     if (sc === 'refill') {
+      const F = S.data.me.refill || { n: 1, rate: 1 };
+      if (F.blocked) {
+        $app.innerHTML = subBar('ptを補充する') + `<div class="rf"><div class="notice cream">${chefImg('sorry')}<div><b>今週の補充はここまでです</b><span>2回目からの補充は、その週の3連単に予想した人だけが受け取れます。月曜になると、また満額で補充できます。</span></div></div>
+          <p class="rf-rule">${esc(refillRuleTxt())}</p></div><div class="rf-chef">${chefImg('smile')}</div>`;
+        document.getElementById('back').onclick = () => { S.screen = null; S.rf = null; render(); };
+        return;
+      }
+      const nth = F.n > 1 ? `<p class="rf-nth">今週${F.n}回目の補充なので、受け取れるのは満額の<b>${esc(rateTxt(F.rate))}</b>です。月曜に満額へ戻ります。</p>` : '';
       $app.innerHTML = subBar('ptを補充する') + `<div class="rf">
-        <h2 class="rf-h">どちらで補充しますか？</h2>
+        <h2 class="rf-h">どちらで補充しますか？</h2>${nth}
         <button class="rfc" data-rf="quiz"><span class="t"><b>豆知識クイズ</b><span class="badge g">＋${fmt(R.quiz)}pt</span></span><span class="d">中華料理の激ムズ豆知識に3問答えます。</span><span class="tags"><span>全問はずれでも補充されます</span></span></button>
         <button class="rfc" data-rf="review"><span class="t"><b>レビュー</b><span class="badge y">＋${fmt(R.review)}pt</span></span><span class="d">アプリやゲームの感想を書きます。いただいた声で、アプリを良くしていきます。</span><span class="tags"><span>読むのはホストだけです</span></span></button>
+        <p class="rf-rule">${esc(refillRuleTxt())}</p>
       </div><div class="rf-chef">${chefImg('smile')}</div>`;
       document.getElementById('back').onclick = () => { S.screen = null; S.rf = null; render(); };
       $app.querySelector('[data-rf="quiz"]').onclick = startQuiz;

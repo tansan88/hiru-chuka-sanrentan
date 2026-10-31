@@ -466,3 +466,6 @@ input[type=date]:disabled{color:var(--sub);background:var(--bg)}
 .pstat.run{color:var(--sub);background:#F2F4F3}
 .pstat.ok{color:var(--turf);background:#E7F3EC}
 .pstat.ng{color:var(--red);background:#FCEBEC}
+
+.rf-nth{margin:0;font-size:13px;line-height:1.6;color:var(--ink);background:#FFF4D6;border-radius:6px;padding:8px 10px}
+.rf-rule{margin:4px 0 0;font-size:12px;line-height:1.6;color:var(--sub)}

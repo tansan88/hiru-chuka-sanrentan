@@ -25,21 +25,21 @@ let pass=0,fail=0;const ok=(c,m,x)=>{if(c)pass++;else{fail++;console.log('FAIL',
  r=await A('refill',{token:g,method:'review',answers:{understood:'すぐ分かった',body:'短い',bug:'なかった'}}); ok(!r.ok&&/20文字/.test(r.error),'短すぎ',r);
  r=await A('refill',{token:g,method:'review',answers:{understood:'すぐ分かった',body:'あいうえおかきくけこさしすせそたちつてと',bug:'あった',bugText:'  '}}); ok(!r.ok&&/内容/.test(r.error),'不具合の内容必須',r);
  r=await A('refill',{token:g,method:'review',answers:{understood:'ちがう',body:'あいうえおかきくけこさしすせそたちつてと',bug:'なかった'}}); ok(!r.ok,'選択肢外',r);
- r=await A('refill',{token:g,method:'review',answers:{understood:'少し迷った',body:'=1+1 あいうえおかきくけこさしすせそたちつてと',bug:'あった',bugText:'文字を大きくしたら崩れた',note:'TRUE'},device:'Mozilla/5.0 (Linux; Android 14)'}); ok(r.ok && r.pt===15000 && r.balance===15050,'初回レビュー',r);
+ r=await A('refill',{token:g,method:'review',answers:{understood:'少し迷った',body:'=1+1 あいうえおかきくけこさしすせそたちつてと',bug:'あった',bugText:'文字を大きくしたら崩れた',note:'TRUE'},device:'Mozilla/5.0 (Linux; Android 14)'}); ok(r.ok && r.pt===7500 && r.balance===7550,'初回レビュー（今週2回目なので半分）',r);
  const rv=await X("return SS.getSheetByName('レビュー').data[1]"); ok(rv.r && rv.r[3]==='初回' && rv.r[6]==="=1+1 あいうえおかきくけこさしすせそたちつてと" && rv.r[10]==='TRUE' && rv.r.length===11 && !/Android/.test(rv.r.join()),'レビュー行(文字のまま・端末は記録しない)',rv);
  // 2回目
  await X("SS.getSheetByName('参加者').data.forEach(r=>{if(r[1]==='g')r[5]=-10000})");
  s=await A('state',{token:g}); ok(s.me.balance===0 && s.me.reviewed===true,'2回目前',s.me);
  r=await A('refill',{token:g,method:'review',answers:{understood:'すぐ分かった',body:'あいうえおかきくけこさしすせそたちつてと',bug:'なかった'}}); ok(!r.ok,'2回目はテーマ必須',r);
- r=await A('refill',{token:g,method:'review',answers:{topic:'面白かった瞬間',balance:'ちょうどいい',body:'大穴に張った木曜だけ当たって配当が増えたとき',bug:'なかった',bugText:'無視される'}}); ok(r.ok && r.balance===15000,'2回目レビュー',r);
+ r=await A('refill',{token:g,method:'review',answers:{topic:'面白かった瞬間',balance:'ちょうどいい',body:'大穴に張った木曜だけ当たって配当が増えたとき',bug:'なかった',bugText:'無視される'}}); ok(r.ok && r.pt===3000 && r.balance===3000,'2回目レビュー（今週3回目なので2割）',r);
  const rv2=await X("return SS.getSheetByName('レビュー').data[2]"); ok(rv2.r[3]==='2回目以降' && rv2.r[5]==='面白かった瞬間' && rv2.r[7]==='ちょうどいい' && rv2.r[9]==='','2回目の行',rv2);
  // 設定で額を変える
  await X("SS.getSheetByName('設定').data.push(['クイズの補充pt',3000,''])");
  await X("SS.getSheetByName('参加者').data.forEach(r=>{if(r[1]==='g')r[5]=-35000})");
- r=await A('refill',{token:g,method:'quiz',score:2}); ok(r.ok && r.pt===3000,'設定の補充額',r);
+ r=await A('refill',{token:g,method:'quiz',score:2}); ok(r.ok && r.pt===600,'設定の補充額（3,000ptの2割）',r);
  r=await A('refill',{token:g,method:'xxx'}); ok(!r.ok,'方法不正',r);
- const hs=await A('hostState',{token:h.token}); ok(hs.ok && hs.refills.length===4 && hs.refills[0].method==='クイズ（2/3）','ホストの補充一覧',hs.refills);
- const sh=await X("return SS.getSheetByName('参加者').data.find(r=>r[1]==='g')[5]"); ok(sh.r===-35000+3000,'補充pt列',sh);
+ const hs=await A('hostState',{token:h.token}); ok(hs.ok && hs.refills.length===4 && hs.refills[0].method==='クイズ（2/3）・今週4回目','ホストの補充一覧',hs.refills);
+ const sh=await X("return SS.getSheetByName('参加者').data.find(r=>r[1]==='g')[5]"); ok(sh.r===-35000+600,'補充pt列',sh);
  // クイズの「使う」を外すと出ない
  await X("const q=SS.getSheetByName('クイズ').data; for(let i=1;i<q.length;i++) q[i][10]= i<=3");
  await X("SS.getSheetByName('参加者').data.forEach(r=>{if(r[1]==='g')r[5]=-50000})");

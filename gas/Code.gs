@@ -35,6 +35,9 @@ const DEFAULT_SETTINGS = [
   ['オッズの動きにくさ', 1000, '各品に最初から入っているとみなすpt（1日あたり）。大きいほどオッズが動きにくい'],
   ['クイズの補充pt', 5000, '持ち点が100pt未満のとき、豆知識クイズに答えると補充されるpt'],
   ['レビューの補充pt', 15000, '持ち点が100pt未満のとき、レビューを書くと補充されるpt'],
+  ['補充の割合（2回目）', 0.5, 'その週の2回目の補充で受け取れる割合（1回目は満額。週は月曜に始まり、月曜に満額へ戻る）'],
+  ['補充の割合（3回目以降）', 0.2, 'その週の3回目以降の補充で受け取れる割合'],
+  ['補充に予想が要るのは何回目から', 2, 'この回数目の補充からは、その週の3連単に予想した人だけが受け取れる（出馬表を出さなかった週は条件なし）。0にすると条件なし'],
   ['写真フォルダID', '', '初期設定で自動作成'],
   ['バックアップの保存数', 8, '毎週のバックアップを何回分残すか（それより古いものはゴミ箱へ）'],
   ['バックアップフォルダID', '', '最初のバックアップで自動作成'],
@@ -66,6 +69,7 @@ function 初期設定() {
   });
   const set = ss.getSheetByName('設定');
   if (set.getLastRow() === 1) set.getRange(2, 1, DEFAULT_SETTINGS.length, 3).setValues(DEFAULT_SETTINGS);
+  else ensureSettings_();
   // 写真フォルダ
   if (!getSetting_('写真フォルダID')) {
     const folder = DriveApp.createFolder('昼中華3連単の写真' + envSuffix_());
@@ -271,9 +275,11 @@ const API = {
     const u = auth_(r);
     const db = load_();
     if (balance_(u, db) >= REFILL_LINE) fail_('持ち点が' + REFILL_LINE + 'pt以上あるので、いまは補充できません');
+    const nx = refillNext_(u, db);
+    if (nx.blocked) fail_(REFILL_BLOCKED_MSG);
     const qs = quizRows_().filter(q => q.使う === true || q.使う === 'TRUE');
     if (qs.length < 3) fail_('クイズの問題が足りません。ホストに伝えてください');
-    return { pt: refillPt_('quiz'), questions: shuffle_(qs).slice(0, 3).map(q => {
+    return { pt: nx.quiz, n: nx.n, questions: shuffle_(qs).slice(0, 3).map(q => {
       const keys = ['A', 'B', 'C', 'D'].filter(k => String(q[k]).trim() !== '');
       const order = shuffle_(keys);
       return { id: q.ID, q: String(q.問題), choices: order.map(k => String(q[k])), answer: order.indexOf(String(q.正解).trim().toUpperCase()), note: String(q.解説) };
@@ -285,6 +291,8 @@ const API = {
     const before = balance_(u, db);
     if (before >= REFILL_LINE) fail_('持ち点が' + REFILL_LINE + 'pt以上あるので、いまは補充できません');
     const method = r.method === 'review' ? 'review' : r.method === 'quiz' ? 'quiz' : fail_('補充の方法を選んでください');
+    const nx = refillNext_(u, db);
+    if (nx.blocked) fail_(REFILL_BLOCKED_MSG);
     let label = 'クイズ';
     if (method === 'quiz') {
       const score = Math.max(0, Math.min(3, Math.floor(Number(r.score) || 0)));
@@ -305,11 +313,13 @@ const API = {
       sheet_('レビュー').appendRow([new Date(), u.id, txt_(u.nick), first ? '初回' : '2回目以降', understood, topic, txt_(body), bal, bug, txt_(bug === 'あった' ? bugText : ''), txt_(text(a.note, 1000))]);
       label = 'レビュー';
     }
-    const pt = refillPt_(method);
+    const pt = method === 'quiz' ? nx.quiz : nx.review;
+    if (nx.n > 1) label += '・今週' + nx.n + '回目';
+    try { ensureSettings_(); } catch (e) {}
     setUserCell_(u, '補充pt', (Number(u.add) || 0) + pt);
     sheet_('補充').appendRow([new Date(), u.id, txt_(u.nick), label, pt]);
     log_(u.id, u.nick, '補充', label + ' / ' + pt + 'pt');
-    return { pt, balance: before + pt };
+    return { pt, balance: before + pt, n: nx.n };
   },
   hostState(r) {
     const u = authHost_(r);
@@ -534,8 +544,52 @@ function meInfo_(u, db) {
   const me = { id: u.id, nick: u.nick, isHost: u.host === true || u.host === 'TRUE', balance: balance_(u, db) };
   me.canRefill = me.balance < REFILL_LINE;
   me.refillPt = { quiz: refillPt_('quiz'), review: refillPt_('review') };
-  if (me.canRefill) me.reviewed = rowsAuto_('レビュー').some(x => x.参加者ID === u.id);
+  me.refillRule = refillRule_();
+  me.refillFull = { quiz: refillPt_('quiz'), review: refillPt_('review') }; // 満額
+  if (me.canRefill) {
+    me.reviewed = rowsAuto_('レビュー').some(x => x.参加者ID === u.id);
+    const nx = refillNext_(u, db);
+    me.refill = nx;
+    me.refillPt = { quiz: nx.quiz, review: nx.review }; // その週の何回目かで下がった額
+  }
   return me;
+}
+// ===== 補充の歯止め =====
+// その週（月曜0時から）の何回目の補充かで額を下げる。2回目以降は、その週の3連単に予想した人だけ
+function refillRule_() {
+  const rate = (k, d) => { const v = Number(getSetting_(k)); return getSetting_(k) === '' || !(v >= 0 && v <= 1) ? d : v; };
+  const nf = Number(getSetting_('補充に予想が要るのは何回目から'));
+  return { rate2: rate('補充の割合（2回目）', 0.5), rate3: rate('補充の割合（3回目以降）', 0.2), needFrom: getSetting_('補充に予想が要るのは何回目から') === '' || !(nf >= 0) ? 2 : Math.floor(nf) };
+}
+function weekStart_(now) {
+  const d = now || new Date();
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() - (d.getDay() + 6) % 7);
+}
+// その週の火曜日＝週ID
+function weekIdOf_(now) {
+  const m = weekStart_(now), t = new Date(m.getFullYear(), m.getMonth(), m.getDate() + 1);
+  const p = n => String(n).padStart(2, '0');
+  return t.getFullYear() + '-' + p(t.getMonth() + 1) + '-' + p(t.getDate());
+}
+function refillNext_(u, db) {
+  const R = refillRule_();
+  const start = weekStart_().getTime();
+  const count = rowsAuto_('補充').filter(x => x.参加者ID === u.id && new Date(x.日時).getTime() >= start).length;
+  const n = count + 1;
+  const rate = n <= 1 ? 1 : n === 2 ? R.rate2 : R.rate3;
+  const wid = weekIdOf_();
+  const held = db.weeks.some(w => w.週ID === wid && w.状態 !== '下書き');
+  const predicted = db.preds.some(p => p.週ID === wid && p.参加者ID === u.id);
+  const blocked = R.needFrom > 0 && n >= R.needFrom && held && !predicted;
+  return { n, rate, quiz: Math.floor(refillPt_('quiz') * rate), review: Math.floor(refillPt_('review') * rate), blocked, held, predicted };
+}
+const REFILL_BLOCKED_MSG = '今週の2回目からの補充は、今週の3連単に予想した人だけが受け取れます。月曜になると、また満額で補充できます';
+// 設定シートに無い項目を、決まった値で書き足す（あとから増えた設定のため）
+function ensureSettings_() {
+  const sh = findSheet_('設定');
+  const have = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().map(x => x[0]) : [];
+  const add = DEFAULT_SETTINGS.filter(x => have.indexOf(x[0]) < 0);
+  if (add.length) { sh.getRange(sh.getLastRow() + 1, 1, add.length, 3).setValues(add); resetCache_(); }
 }
 function refillPt_(method) {
   const v = Number(getSetting_(method === 'quiz' ? 'クイズの補充pt' : 'レビューの補充pt'));
