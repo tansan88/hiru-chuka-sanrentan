@@ -99,7 +99,7 @@
   }
   // 通信が切れたとき、自動でもう1回だけ送ってよい操作（2回届いても結果が同じになるもの）
   // iPhone は、カメラや Slack から戻った直後の1回目の通信が失敗しやすい
-  const RETRY_OK = ['state', 'history', 'week', 'hostState', 'predict', 'saveWeek', 'registerDay', 'saveRegulars', 'testCloseNow', 'readMenu', 'quizStart'];
+  const RETRY_OK = ['state', 'history', 'week', 'hostState', 'predict', 'saveWeek', 'registerDay', 'saveRegulars', 'testCloseNow', 'readMenu', 'quizStart', 'postMenus'];
   const isNetErr = e => !e || !e.message || /Failed to fetch|NetworkError|Load failed|network connection was lost|JSON|Unexpected/i.test(e.message);
   async function api(action, body, opt) {
     opt = opt || {};
@@ -504,11 +504,12 @@
       <div class="pad post">
         ${P.ph ? `<div class="post-img"><img src="${photoSrc(P.ph)}" alt="撮った写真"></div><div class="post-re"><button class="lnk" id="pcam">撮り直す</button><button class="lnk" id="palb">アルバムから選ぶ</button></div>`
           : `<button class="post-shoot" id="pcam">${CAM_ICON}<b>写真を撮る</b><span>カメラが開きます</span></button><button class="lnk" id="palb" style="align-self:center">アルバムから選ぶ</button>`}
+        ${(P.menus || []).length ? `<div class="post-menus"><small>今週のメニューから選ぶ</small><div class="post-chips">${P.menus.map((m, i) => `<button class="pchip ${P.name.trim() === m.name ? 'on' : ''}" data-pm="${i}">${waku(m.waku)}<span>${esc(m.name)}</span></button>`).join('')}</div></div>` : ''}
         <label class="field"><span>メニュー名</span><input id="pname" maxlength="40" value="${esc(P.name)}" placeholder="例：麻婆豆腐" enterkeyhint="done"></label>
         <div class="post-prev"><small>Slackに貼り付ける文字</small><span id="pprev">${esc(P.name.trim() || 'メニュー名')} ${HIRU_STAMP}</span></div>
         <button class="btn slack block" id="psend" ${ready ? '' : 'disabled'}>Slackに送る</button>
         <span class="pnote"><b>①</b> 共有の画面で Slack を選び、送り先のチャンネルを選ぶ<br><b>②</b> メッセージ欄を長押しして「ペースト」（文字はコピー済み）<br><b>③</b> 送信<br>この画面で作った投稿は、アプリには記録されません。</span>
-        <div class="post-foot"><span>ホーム画面に追加すると、すぐ開けます（共有ボタン →「ホーム画面に追加」）</span><a class="lnk" href="${esc(appUrl())}">昼中華3連単を開く ›</a></div>
+        <div class="post-foot"><a class="lnk" href="${esc(appUrl())}">昼中華3連単を開く ›</a></div>
       </div>`;
     const take = cam => picker.open(cam, ph => { P.ph = ph; render(); });
     document.getElementById('pcam').onclick = () => take(true);
@@ -516,6 +517,9 @@
     const nm = document.getElementById('pname');
     nm.oninput = () => { P.name = nm.value; document.getElementById('pprev').textContent = (P.name.trim() || 'メニュー名') + ' ' + HIRU_STAMP; document.getElementById('psend').disabled = !(P.ph && P.name.trim()); };
     document.getElementById('psend').onclick = () => { if (P.ph && P.name.trim()) sharePost(P.ph, P.name.trim()); };
+    $app.querySelectorAll('[data-pm]').forEach(b => b.onclick = () => { P.name = P.menus[Number(b.dataset.pm)].name; render(); });
+    // その週のメニューを後ろで読み込む（ログインなしで読める。読めなければ手入力だけ）
+    if (P.menus === undefined) { P.menus = null; api('postMenus', {}, { loading: false, quiet: true }).then(r => { P.menus = r.menus || []; if (P.menus.length) render(); }).catch(() => { P.menus = []; }); }
   }
   function maybeGong(v) {
     if (!v || !v.settle || !(v.settle.triple > 0)) return;

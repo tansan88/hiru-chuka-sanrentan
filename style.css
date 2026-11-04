@@ -470,3 +470,9 @@ input[type=date]:disabled{color:var(--sub);background:var(--bg)}
 .rf-nth{margin:0;font-size:13px;line-height:1.6;color:var(--ink);background:#FFF4D6;border-radius:6px;padding:8px 10px}
 .rf-rule{margin:4px 0 0;font-size:12px;line-height:1.6;color:var(--sub)}
 .rf.rf-stop{flex:1;justify-content:center}
+.post-menus{display:flex;flex-direction:column;gap:6px}
+.post-menus small{font-size:12px;font-weight:700;color:var(--sub)}
+.post-chips{display:flex;flex-direction:column;gap:6px}
+.pchip{display:flex;align-items:center;gap:8px;min-height:44px;padding:6px 10px;border:1px solid var(--line2);border-radius:6px;background:#FFF;font:inherit;font-size:14px;color:var(--ink);text-align:left;cursor:pointer}
+.pchip.on{border:2px solid var(--turf);background:#EEF6F1}
+.pchip span{min-width:0}

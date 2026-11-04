@@ -34,6 +34,9 @@ ok(r.ok, '出馬表を公開', r);
 r = call('state', { token: g });
 ok(r.current && r.current.menus.find(m => m.waku === 8).odds === 16, '8品なら「その他」は16倍', r.current && r.current.menus.map(m => m.odds));
 ok(call('predict', { token: g, weekId: wk, picks: { 火: 8, 水: 1, 木: 3 }, bet: 300 }).ok, '「その他」も予想できる');
+r = call('postMenus', {});
+ok(r.ok && r.menus.length === 7 && r.menus[0].waku === 1 && r.menus[0].name === '豚肉とナスのピリ辛' && !r.menus.some(m => m.name === 'その他'), '投稿をつくる：ログインなしでその週のメニュー（その他は除く）', r);
+ok(Object.keys(r).sort().join() === 'menus,ms,ok', '投稿をつくる：メニュー以外は返さない', Object.keys(r));
 
 // ---- テスト環境だけの「締切を今にする」 ----
 r = call('testCloseNow', { token: h, weekId: wk });

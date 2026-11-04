@@ -104,7 +104,7 @@ function doPost(e) {
   if (req.action !== 'clientError' && (Number(req.v) || 0) < MIN_APP_VERSION) return json_({ ok: false, reload: true, error: 'アプリが新しくなりました。画面を開き直してください' });
   // 読むだけの操作は順番待ちをしない（書き込みだけ1件ずつ処理する）
   // readMenu は文字認識に数秒かかるが、シートには書かないので順番待ちをしない
-  const readOnly = ['state', 'history', 'week', 'hostState', 'clientError', 'readMenu'].indexOf(req.action) >= 0;
+  const readOnly = ['state', 'history', 'week', 'hostState', 'clientError', 'readMenu', 'postMenus'].indexOf(req.action) >= 0;
   const lock = readOnly ? null : LockService.getScriptLock();
   try {
     if (lock) lock.waitLock(20000);
@@ -407,6 +407,14 @@ const API = {
   },
   // 出馬表のスクショ（エアレジのメニュー画面など）から、「1.」〜「5.」で始まるメニュー名を読み取る
   // Google ドライブの文字認識を使う（Apps Script の「Drive API」を有効にしておく。読み取りに使ったファイルはすぐゴミ箱へ）
+  // 「投稿をつくる」で選べるメニュー（ログインなしで読める。返すのはその週の品名だけ。「その他」は除く）
+  postMenus() {
+    const db = load_();
+    const wid = weekIdOf_();
+    const w = db.weeks.find(x => x.週ID === wid && x.状態 !== '下書き') || db.weeks.filter(x => x.状態 === '受付中').sort(byWeekDesc_)[0];
+    if (!w) return { menus: [] };
+    return { menus: db.menus.filter(m => m.週ID === w.週ID && String(m.品名) !== OTHER_NAME).sort((a, b) => Number(a.枠) - Number(b.枠)).map(m => ({ waku: Number(m.枠), name: String(m.品名) })) };
+  },
   readMenu(r) {
     authHost_(r);
     const data = r.image && String(r.image.data || '');
