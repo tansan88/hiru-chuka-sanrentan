@@ -529,6 +529,12 @@ function weekView_(w, u, db, withSettle) {
     closed: new Date() >= new Date(w.締切), isMyHostWeek: w.担当ホストID === u.id, oddsLive: w.状態 === '受付中' && new Date() < new Date(w.締切),
     menus, results, myPred, marks,
   };
+  // 締切のあとは「みんなの予想」を人数だけ返す（誰が何を選んだかは返さない）
+  if (v.closed) {
+    const crowd = {}; DAYS.forEach(d => crowd[d] = {});
+    db.preds.filter(x => x.週ID === w.週ID).forEach(x => DAYS.forEach(d => { const k = Number(x[d]); if (k) crowd[d][k] = (crowd[d][k] || 0) + 1; }));
+    v.crowd = crowd;
+  }
   if (withSettle) {
     const e = db.earn.find(x => x.週ID === w.週ID && x.参加者ID === u.id);
     if (e) v.settle = { daily: { 火: Number(e.火), 水: Number(e.水), 木: Number(e.木) }, triple: Number(e['3連単']), refund: Number(e.返還), total: Number(e.獲得計), net: Number(e.収支) };

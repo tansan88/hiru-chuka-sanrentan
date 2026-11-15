@@ -299,12 +299,15 @@
   function closedView(v) {
     const res = v.results, p = v.myPred;
     const cancelled = DAYS.filter(d => res[d] && res[d].waku === 0);
+    const waitDays = p ? DAYS.filter(d => !res[d]) : [];
+    const aliveTri = p && !cancelled.length && DAYS.every(d => !res[d] || res[d].waku === p.picks[d]);
+    const reachDay = aliveTri && waitDays.length === 1 ? waitDays[0] : null;
     const heads = DAYS.map(d => res[d] && res[d].waku === 0 ? `<span class="colcancel">${d} 中止</span>` : d);
     const rows = v.menus.map(m => {
       const cells = DAYS.map(d => {
         const r = res[d], mine = p && p.picks[d] === m.waku;
         if (r && r.waku === 0) return mine ? '<span class="mk cancel" aria-label="中止">−</span>' : '<span></span>';
-        if (mine) { if (!r) return '<span class="mk wait" aria-label="予想（発表待ち）"></span>'; return r.waku === m.waku ? '<span class="mk hit" aria-label="当たり">✓</span>' : '<span class="mk miss" aria-label="はずれ">' + MISS_X + '</span>'; }
+        if (mine) { if (!r) return `<span class="mk wait${reachDay === d ? ' hot' : ''}" aria-label="予想（発表待ち）"></span>`; return r.waku === m.waku ? '<span class="mk hit" aria-label="当たり">✓</span>' : '<span class="mk miss" aria-label="はずれ">' + MISS_X + '</span>'; }
         if (r && r.waku === m.waku) return `<span class="bowl" role="img" aria-label="${d}曜に食べたもの">${BOWL('#C8102E')}</span>`;
         return '<span></span>';
       }).join('');
@@ -326,15 +329,43 @@
       const allHit = DAYS.every(d => res[d] && res[d].waku === p.picks[d]);
       const tag = cancelled.length ? '3連単 不成立' : allHit ? '3連単 的中！' : anyMiss ? '3連単 不的中' : '3連単 発表待ち';
       if (allHit) got += Math.floor(p.bet * r.mul);
-      dock = `<div class="dock"><div class="l1"><span class="picks">${names.map(esc).join(' → ')}</span><span class="mul">使った ${fmt(p.bet)}pt</span></div>
+      const board = cancelled.length ? '' : ledBoard(v, p, r, got, waitDays, aliveTri);
+      dock = `<div class="dock">${board}<div class="l1"><span class="picks">${names.map(esc).join(' → ')}</span><span class="mul">使った ${fmt(p.bet)}pt</span></div>
         <div class="chips">${chips}</div>
-        <div class="l1">${cancelled.length ? '<span style="font-size:13px;font-weight:700">中止の日があるため <b style="color:var(--gold)">全額返還</b></span>' : `<span style="font-size:13px">いまの獲得 <b style="font-size:18px;color:var(--gold)">${fmt(got)}</b> pt</span>`}<span class="tag">${tag}</span></div></div>`;
+        <div class="l1">${cancelled.length ? '<span style="font-size:13px;font-weight:700">中止の日があるため <b style="color:var(--gold)">全額返還</b></span>' : `<span style="font-size:13px">いまの獲得 <b style="font-size:18px;color:var(--gold)">${fmt(got)}</b> pt</span>`}${board ? '' : `<span class="tag">${tag}</span>`}</div></div>`;
     } else {
       dock = '<div class="dock"><span style="font-size:13px">今週は予想していません。食べたものは毎日ここに出ます。</span></div>';
     }
     return raceHead(v, '<span class="pill run">開催中</span>') +
       `<div class="legend"><span><span class="mk wait"></span>予想</span><span><span class="mk hit">✓</span>当たり</span><span><span class="mk miss">${MISS_X}</span>はずれ</span><span><span class="bowl" style="width:20px;height:20px">${BOWL('#C8102E')}</span>食べたもの</span>${cancelled.length ? '<span><span class="mk cancel">−</span>中止</span>' : ''}</div>` +
-      `<div class="tbl"><div class="tr th"><span>枠</span><span>メニュー</span><span>オッズ</span>${heads.map(h => `<span>${h}</span>`).join('')}</div>${rows}</div>` + dock;
+      `<div class="tbl"><div class="tr th"><span>枠</span><span>メニュー</span><span>オッズ</span>${heads.map(h => `<span>${h}</span>`).join('')}</div>${rows}</div>` + crowdView(v) + dock;
+  }
+  // 電光掲示板：3連単がどこまで来ているか（リーチ・あと2つ・あと3つ・終了・的中）
+  function ledBoard(v, p, r, got, waitDays, alive) {
+    const nm = d => esc((v.menus.find(x => x.waku === p.picks[d]) || {}).name || '—');
+    const di = d => DAYS.indexOf(d);
+    const triple = Math.floor(p.bet * r.mul);
+    const next = waitDays[0];
+    let lab, cls, msg, amt, note = '';
+    if (alive && !next) { lab = '的中'; cls = 'red blink'; msg = '3連単 的中！ 確定をお待ちください'; amt = got; }
+    else if (alive && waitDays.length === 1) { lab = 'リーチ'; cls = 'red blink'; msg = `${next}曜 ${nm(next)} で 3連単 的中`; amt = triple + r.daily[di(next)]; }
+    else if (alive) { lab = 'あと' + waitDays.length + 'つ'; cls = 'org'; msg = `${next}曜 ${nm(next)} で ${waitDays.length === 2 ? 'リーチ' : 'スタート'}`; amt = triple; note = '3連単'; }
+    else if (next) { lab = '3連単終了'; cls = 'dim'; msg = `日替わりは続きます　${next}曜 ${nm(next)} で`; amt = r.daily[di(next)]; }
+    else { lab = '3連単終了'; cls = 'dim'; msg = '今週の発表はすべて終わりました'; amt = got; note = '獲得'; }
+    const m = msg + '　　　';
+    return `<div class="led-row" role="status" aria-label="${lab}　${esc(msg.replace(/<[^>]*>/g, ''))}　${note}${fmt(amt)}pt"><div class="led"><span class="l1 ${cls}">${lab}</span><span class="mq"><span>${m}${m}</span></span></div><div class="led amt">${note ? `<i>${note}</i>` : ''}<span>+${fmt(amt)}</span><small>pt</small></div></div>`;
+  }
+  // みんなの予想：曜日ごとに、枠の色の帯で人数だけ
+  function crowdView(v) {
+    const c = v.crowd; if (!c) return '';
+    const rows = DAYS.map(d => {
+      const list = Object.keys(c[d] || {}).map(k => [Number(k), c[d][k]]).filter(x => x[1] > 0).sort((a, b) => b[1] - a[1] || a[0] - b[0]);
+      if (!list.length) return '';
+      const top = list[0], m = v.menus.find(x => x.waku === top[0]);
+      const seg = list.map(([k, n]) => { const w = WAKU[((k - 1) % 8) + 1] || WAKU[1]; return `<span style="flex:${n};background:${w[0]};color:${w[1]};${w[2] ? 'box-shadow:inset 0 0 0 1px ' + w[2] : ''}">${n}</span>`; }).join('');
+      return `<div class="cw-row"><span class="cw-d">${d}</span><div><div class="cw-bar" aria-hidden="true">${seg}</div><div class="cw-cap">${waku(top[0])}<b>${esc(m ? m.name : '')}</b> が${top[1]}人</div></div></div>`;
+    }).join('');
+    return rows ? `<section class="crowd"><b class="cw-h">みんなの予想</b>${rows}</section>` : '';
   }
   function hostWeekView(v) {
     const rows = v.menus.slice().sort((a, b) => a.waku - b.waku).map(m => `<div class="tr tr4">${waku(m.waku)}${nameCell(m, m.pop <= 2)}<span style="text-align:right;${m.pop === 1 ? 'color:var(--red);font-weight:700' : m.pop === 2 ? 'color:#1F5BC4;font-weight:700' : ''}">${m.pop}番人気</span><span style="text-align:right">${oddsTxt(m.odds)}</span></div>`).join('');

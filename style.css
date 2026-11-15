@@ -470,3 +470,31 @@ input[type=date]:disabled{color:var(--sub);background:var(--bg)}
 .rf-nth{margin:0;font-size:13px;line-height:1.6;color:var(--ink);background:#FFF4D6;border-radius:6px;padding:8px 10px}
 .rf-rule{margin:4px 0 0;font-size:12px;line-height:1.6;color:var(--sub)}
 .rf.rf-stop{flex:1;justify-content:center}
+
+/* みんなの予想（締切後・人数だけ） */
+.crowd{background:var(--paper);border-top:8px solid var(--bg);border-bottom:1px solid var(--line);padding:12px 14px 14px;display:flex;flex-direction:column;gap:10px}
+.cw-h{font-size:14px;font-weight:900}
+.cw-row{display:grid;grid-template-columns:22px 1fr;gap:8px;align-items:start}
+.cw-d{font-weight:900;font-size:14px;line-height:24px}
+.cw-bar{display:flex;gap:2px;height:24px}
+.cw-bar span{display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;min-width:18px;border-radius:2px}
+.cw-cap{display:flex;align-items:center;gap:5px;font-size:12px;margin-top:6px}
+.cw-cap .waku{width:16px;height:16px;font-size:10px}
+/* 電光掲示板（締切後の下の帯） */
+.led-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,.15)}
+.led{background:#111;border-radius:4px;color:#FF9A1F;font-family:'DotGothic16',monospace;text-shadow:0 0 6px rgba(255,140,0,.65);position:relative;overflow:hidden;display:flex;align-items:center;gap:10px;padding:8px 10px;box-shadow:inset 0 0 0 1px #333;min-width:0}
+.led::after{content:"";position:absolute;inset:0;background:radial-gradient(circle,transparent 55%,rgba(0,0,0,.55) 60%) 0 0/3px 3px;pointer-events:none}
+.led .l1{flex:none;font-size:17px}
+.led .l1.red{color:#FF3B30;text-shadow:0 0 6px rgba(255,59,48,.7)}
+.led .l1.dim{color:#9A8F80;text-shadow:none}
+.led .l1.blink{animation:led-blink 1s steps(1) infinite}
+@keyframes led-blink{50%{opacity:.25}}
+.led .mq{flex:1;overflow:hidden;white-space:nowrap;font-size:16px}
+.led .mq span{display:inline-block;animation:led-mq 9s linear infinite}
+@keyframes led-mq{to{transform:translateX(-50%)}}
+.led.amt{color:#FFD60A;text-shadow:0 0 6px rgba(255,214,10,.6);font-size:22px;gap:2px;align-items:baseline}
+.led.amt i{font-style:normal;font-size:11px;color:#FF9A1F;margin-right:4px}
+.led.amt small{font-size:12px}
+.mk.wait.hot{border:3px solid var(--gold);animation:led-hot 1.3s ease-in-out infinite}
+@keyframes led-hot{0%,100%{box-shadow:0 0 0 0 rgba(247,181,0,.55)}50%{box-shadow:0 0 0 7px rgba(247,181,0,0)}}
+@media (prefers-reduced-motion: reduce){.led .l1.blink,.led .mq span,.mk.wait.hot{animation:none!important}}
