@@ -21,6 +21,14 @@
   const NO_API = !API_URL;
   // ?post を付けて開くと「Slackへの投稿をつくる」だけの画面（ログイン不要・アプリには何も記録しない）
   const POST_MODE = /[?&]post(=|&|$)/.test(location.search);
+  // ホーム画面に追加したときの名前とアイコン（PWA）。テスト環境（/test/）は名前とアイコンに「テスト」が付く
+  (function () {
+    const sfx = (POST_MODE ? '-post' : '') + (/\/test\//.test(location.pathname) ? '-test' : '');
+    const head = document.head;
+    const link = (rel, href) => { const l = document.createElement('link'); l.rel = rel; l.href = href; head.appendChild(l); };
+    link('manifest', 'assets/pwa/manifest' + sfx + '.webmanifest');
+    link('apple-touch-icon', 'assets/pwa/icon' + (/\/test\//.test(location.pathname) ? '-test' : '') + '-180.png');
+  })();
   const HIRU_STAMP = ':hirucyuuka:';
   const OTHER_NAME = 'その他';
   // はずれの「×」は文字だと円の真ん中に来ないので、線で描く
