@@ -723,7 +723,8 @@
     show('<p style="padding:16px;color:var(--sub);margin:0">読み込み中…</p>');
     let list = [];
     try { list = (await api('notices', {}, { loading: false })).list || []; } catch (e) { return; }
-    show(list.length ? `<div class="ntlist">${list.map(n => `<div class="ntc"><small>${noticeDate(n.date)}</small><b>${esc(n.title)}</b><p>${noticeBody(n.body)}</p></div>`).join('')}</div>` : '<p style="padding:16px;color:var(--sub);margin:0">お知らせはまだありません</p>');
+    // 一覧は「日付と見出し」の1行だけ。押すと本文が開き、もう一度押すと閉じる（最初はすべて閉じておく）
+    show(list.length ? `<div class="ntlist">${list.map(n => `<details class="ntd"><summary><small>${noticeDate(n.date)}</small><b>${esc(n.title)}</b></summary>${n.body ? `<p>${noticeBody(n.body)}</p>` : ''}</details>`).join('')}</div>` : '<p style="padding:16px;color:var(--sub);margin:0">お知らせはまだありません</p>');
   }
 
   // ---------- 通知（PWA） ----------
