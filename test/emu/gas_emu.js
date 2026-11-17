@@ -58,7 +58,10 @@ const G = {
   Utilities: {
     getUuid: () => crypto.randomUUID(),
     DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
-    computeDigest: (alg, s) => [...crypto.createHash('sha256').update(s, 'utf8').digest()].map(b => b > 127 ? b - 256 : b),
+    computeDigest: (alg, s) => [...crypto.createHash('sha256').update(Array.isArray(s) ? Buffer.from(s.map(b => b & 255)) : Buffer.from(s, 'utf8')).digest()].map(b => b > 127 ? b - 256 : b),
+    MacAlgorithm: { HMAC_SHA_256: 'sha256' },
+    computeHmacSignature: (alg, v, k) => [...crypto.createHmac('sha256', Buffer.from(k.map(b => b & 255))).update(Buffer.from(v.map(b => b & 255))).digest()].map(b => b > 127 ? b - 256 : b),
+    base64EncodeWebSafe: bytes => Buffer.from(typeof bytes === 'string' ? Buffer.from(bytes, 'utf8') : bytes.map(b => b & 255)).toString('base64').replace(/\+/g, '-').replace(/\//g, '_'),
     base64Decode: s => [...Buffer.from(s, 'base64')],
     newBlob: (bytes, mime, name) => ({ bytes, mime, name, getDataAsString: () => Buffer.from((bytes || []).map(b => b & 255)).toString('utf8') }),
     formatDate: (d, tz, f) => { const p = n => String(n).padStart(2, '0'); const x = new Date(d.toLocaleString('en-US', { timeZone: tz })); if (f === 'Z') return '+0900'; return f.replace('yyyy', x.getFullYear()).replace('MM', p(x.getMonth() + 1)).replace('dd', p(x.getDate())).replace('HH', p(x.getHours())).replace('mm', p(x.getMinutes())); },
@@ -73,6 +76,8 @@ const G = {
   ScriptApp: (() => { const triggers = []; const b = { timeBased() { return b; }, onWeekDay(d) { b.d = d; return b; }, atHour(h) { b.h = h; return b; }, create() { triggers.push({ fn: b.fn, d: b.d, h: b.h, getHandlerFunction() { return this.fn; } }); } };
     return { WeekDay: { FRIDAY: 'FRIDAY' }, getProjectTriggers: () => triggers.slice(), deleteTrigger: t => triggers.splice(triggers.indexOf(t), 1), newTrigger: fn => { b.fn = fn; return b; }, _t: triggers }; })(),
   console,
+  // 通知の送信の真似：G.UrlFetchApp._code で返すコード（関数なら送り先ごとに決める）を変えられる
+  UrlFetchApp: { calls: [], _code: 201, fetchAll(reqs) { G.UrlFetchApp.calls.push(reqs); return reqs.map(q => { const c = typeof G.UrlFetchApp._code === 'function' ? G.UrlFetchApp._code(q) : G.UrlFetchApp._code; return { getResponseCode: () => c, getContentText: () => (c >= 300 ? 'error' : '') }; }); } },
   // Sheets API（詳細サービス）の真似：本物と同じく、日付は数（シリアル値）、行末の空のセルと最後の空の行は省く
   Sheets: { _off: false, calls: 0, Spreadsheets: { Values: { batchGet(id, opt) {
     if (G.Sheets._off) throw new Error('Sheets API has not been used');
@@ -93,6 +98,6 @@ const G = {
 };
 module.exports = codePath => {
   const code = fs.readFileSync(codePath, 'utf8');
-  const ctx = new Function(...Object.keys(G), code + '\n;return { doPost, doGet, lastBackupAt_, 初期設定, API, SHEETS, バックアップを設定する, バックアップを取る, 定期バックアップ, エラー通知のテスト, ログインロックを解除する, reportError_, parseMenuText_, fixMojibake_, __reset: () => { resetCache_(); } };')(...Object.values(G));
+  const ctx = new Function(...Object.keys(G), code + '\n;return { doPost, doGet, lastBackupAt_, 初期設定, API, SHEETS, バックアップを設定する, バックアップを取る, 定期バックアップ, エラー通知のテスト, ログインロックを解除する, reportError_, parseMenuText_, fixMojibake_, vapidKeys_, vapidJwt_, es256Sign_, __reset: () => { resetCache_(); } };')(...Object.values(G));
   return { ctx, SS, files, coerce, G };
 };

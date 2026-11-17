@@ -45,6 +45,9 @@
     get(k) { try { return localStorage.getItem(store.key(k)); } catch (e) { return null; } },
     set(k, v) { try { v == null ? localStorage.removeItem(store.key(k)) : localStorage.setItem(store.key(k), v); } catch (e) {} },
   };
+  // 通知を受け取る仕組み（service worker）。テスト環境は /test/sw.js が /test/ だけを受け持つ（本番のものより範囲が狭いので優先される）
+  const PUSH_OK = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const SWP = ('serviceWorker' in navigator && !POST_MODE) ? navigator.serviceWorker.register('sw.js').catch(() => null) : Promise.resolve(null);
   function iconId() { const v = store.get('pwa_icon'); return ICONS.some(x => x[0] === v) ? v : 'default'; }
   function applyIcon() { const l = document.getElementById('touchicon'); if (l) l.href = iconSrc(iconId(), 180); }
   applyIcon();
@@ -643,7 +646,7 @@
       <div class="who">${esc(D.me.nick)}</div>
       <div class="bal"><span>持ち点</span><b>${fmt(D.me.balance)} <span style="font-size:13px">pt</span></b></div>
       <nav class="mlist">${D.me.canRefill ? '<button data-m="refill" class="mrf">ptを補充する</button>' : ''}<span class="sec">記録</span><button data-m="history">過去の結果</button><button data-m="rule">ルール</button><button data-m="contact">問い合わせ</button><button data-m="post">Slackへの投稿をつくる</button>
-      <span class="sec" style="border-top:1px solid var(--line)">アカウント</span><button data-m="nick">ニックネームを変える</button><button data-m="pass">パスワードを変える</button><button data-m="icon">アプリのアイコン</button></nav>
+      <span class="sec" style="border-top:1px solid var(--line)">アカウント</span><button data-m="nick">ニックネームを変える</button><button data-m="pass">パスワードを変える</button><button data-m="icon">アプリのアイコン</button><button data-m="notify">通知</button></nav>
       <div style="margin-top:auto;padding:16px"><button class="btn block" data-m="logout" style="border:1.5px solid var(--red);background:#FFF;color:var(--red);font-weight:700">ログアウト</button></div></aside>`);
     $layer.querySelectorAll('[data-m]').forEach(b => b.onclick = () => {
       const m = b.dataset.m; closeLayer();
@@ -680,6 +683,48 @@
       </div></div></div>`);
   }
 
+  // ---------- 通知（PWA） ----------
+  function noteBox(lead, rows) { return `<div class="icnote"><span class="lead">${lead}</span>${(rows || []).map(([h, t]) => `<span><b>${h}</b>${t}</span>`).join('')}</div>`; }
+  function b64uToU8(s) { s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; const b = atob(s); return Uint8Array.from(b, c => c.charCodeAt(0)); }
+  async function pushSub() { const reg = await SWP; return reg && reg.pushManager ? reg.pushManager.getSubscription() : null; }
+  async function renderNotify() {
+    const head = subBar('通知');
+    const show = html => { if (S.screen !== 'notify') return; $app.innerHTML = head + html; document.getElementById('back').onclick = () => { S.screen = null; render(); }; };
+    if (!PUSH_OK) return show(noteBox('通知は、ホーム画面に追加したアプリで受け取れます。', [['受け取るまで', 'ホーム画面に追加 → そのアイコンから開く → ここで「通知をオンにする」'], ['アイコン', '追加する前に、メニューの「アプリのアイコン」で選べます']]));
+    if (Notification.permission === 'denied') return show(noteBox('通知が「許可しない」になっています。', [['オンにするには', 'iPhoneの「設定」→「通知」→「' + (/\/test\//.test(location.pathname) ? '昼中華テスト' : '昼中華3連単') + '」で許可する']]));
+    let sub = null;
+    try { sub = await pushSub(); } catch (e) {}
+    const btns = inner => `<div style="padding:16px;display:flex;flex-direction:column;gap:10px">${inner}</div>`;
+    const outline = 'style="border:1.5px solid var(--turf);background:#FFF;color:var(--turf);font-weight:700"';
+    if (sub) {
+      show(noteBox('通知はオンです。', [['届くとき', '出馬表が公開されたとき（週1回まで）']]) + btns(`<button class="btn green block" id="ptest">試しに送る</button><button class="btn block" id="poff" ${outline}>通知をやめる</button>`));
+      // サーバー側の送り先も最新にしておく（消えていたら登録し直す）
+      api('pushSubscribe', { sub: sub.toJSON() }, { loading: false, quiet: true }).catch(() => {});
+      document.getElementById('ptest').onclick = async () => { try { await api('pushTest', { endpoint: sub.endpoint }); toast('送りました。少し待つと届きます'); } catch (e) {} };
+      document.getElementById('poff').onclick = async () => {
+        try { await api('pushUnsubscribe', { sub: { endpoint: sub.endpoint } }); } catch (e) { return; }
+        try { await sub.unsubscribe(); } catch (e) {}
+        toast('通知をやめました'); renderNotify();
+      };
+      return;
+    }
+    show(noteBox('出馬表が公開されたら、この端末に通知が届きます。', [['届くとき', '週1回まで'], ['保存するもの', '通知を届けるための、この端末の送り先（通知をやめると消えます）']]) + btns('<button class="btn green block" id="pon">通知をオンにする</button>'));
+    document.getElementById('pon').onclick = async () => {
+      // 許可を求めるのは、ボタンを押したその場でないといけない（iPhone の決まり）
+      let perm;
+      try { perm = await Notification.requestPermission(); } catch (e) { perm = 'default'; }
+      if (perm !== 'granted') return renderNotify();
+      try {
+        const k = await api('pushKey');
+        const reg = await SWP;
+        if (!reg) throw new Error('通知の準備ができませんでした。アプリを開き直してください');
+        const s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToU8(k.key) });
+        await api('pushSubscribe', { sub: s.toJSON() });
+        toast('通知をオンにしました'); renderNotify();
+      } catch (e) { if (!e.fromApi) toast(e.message || '通知をオンにできませんでした'); }
+    };
+  }
+
   // ---------- サブ画面 ----------
   function subBar(title) { return `<header class="bar" style="justify-content:flex-start"><button class="ibtn" id="back" aria-label="戻る" style="font-size:22px;padding-bottom:3px">‹</button><b class="sub-title">${title}</b></header>`; }
   async function openHistory() {
@@ -699,6 +744,7 @@
       document.getElementById('back').onclick = () => { S.screen = 'history'; render(); };
       bindResult(S.view); return;
     }
+    if (sc === 'notify') { renderNotify(); return; }
     if (sc === 'icon') {
       const cur = iconId();
       const note = IS_STANDALONE

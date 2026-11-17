@@ -32,7 +32,7 @@ jobs:
         with:
           node-version: '20'
       - name: 画面のファイルに文法の誤りがないか
-        run: for f in app.js share.js wok.js config.js; do node --check "$f" || exit 1; done
+        run: for f in app.js share.js wok.js config.js sw.js; do node --check "$f" || exit 1; done
       - name: テストを実行
         run: node test/run.js
 

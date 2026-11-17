@@ -44,6 +44,7 @@ jobs:
           for d in main:_site testb:_site/test; do
             src=${d%%:*}; dst=${d#*:}
             cp $src/index.html $src/style.css $src/app.js $src/share.js $src/wok.js $src/config.js "$dst/"
+            [ -f $src/sw.js ] && cp $src/sw.js "$dst/"
             cp -r $src/assets "$dst/"
           done
           touch _site/.nojekyll
