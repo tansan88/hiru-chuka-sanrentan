@@ -54,6 +54,17 @@
 
 
   const S = { post: { ph: null, name: '' }, dayOther: {}, token: store.get('hc_token'), data: null, tab: store.get('hc_tab') || 'yoso', screen: null, editing: false, picks: {}, bet: '', host: null, hp: null, redo: {}, photo: {}, sending: {}, view: null, hist: null, authMode: 'login' };
+  // 通知を押して開いたとき（?tab=yoso）は、今週の出馬表（予想タブ）を出す。URL からは消しておく
+  if (/[?&]tab=yoso(&|$)/.test(location.search)) {
+    S.tab = 'yoso'; store.set('hc_tab', 'yoso');
+    try { history.replaceState(null, '', location.pathname + location.search.replace(/([?&])tab=yoso(&|$)/, (m, a, b) => (b ? a : '')).replace(/[?&]$/, '')); } catch (e) {}
+  }
+  // アプリを開いたまま通知を押したときは、service worker から知らせが来る
+  if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => {
+    if (!e.data || e.data.type !== 'openYoso' || POST_MODE) return;
+    closeLayer(); S.screen = null; S.tab = 'yoso'; store.set('hc_tab', 'yoso');
+    if (S.data) refresh(); else render();
+  });
 
   // ---------- 画面で起きたエラーをサーバーに知らせる（1回の表示で3件まで・同じ内容は1回だけ） ----------
   const errSeen = {}; let errSent = 0;
@@ -697,7 +708,7 @@
     const btns = inner => `<div style="padding:16px;display:flex;flex-direction:column;gap:10px">${inner}</div>`;
     const outline = 'style="border:1.5px solid var(--turf);background:#FFF;color:var(--turf);font-weight:700"';
     if (sub) {
-      show(noteBox('通知はオンです。', [['届くとき', '出馬表が公開されたとき（週1回まで）']]) + btns(`<button class="btn green block" id="ptest">試しに送る</button><button class="btn block" id="poff" ${outline}>通知をやめる</button>`));
+      show(noteBox('通知はオンです。', [['届くとき', '出馬表が公開されたとき']]) + btns(`<button class="btn green block" id="ptest">試しに送る</button><button class="btn block" id="poff" ${outline}>通知をやめる</button>`));
       // サーバー側の送り先も最新にしておく（消えていたら登録し直す）
       api('pushSubscribe', { sub: sub.toJSON() }, { loading: false, quiet: true }).catch(() => {});
       document.getElementById('ptest').onclick = async () => { try { await api('pushTest', { endpoint: sub.endpoint }); toast('送りました。少し待つと届きます'); } catch (e) {} };
@@ -708,7 +719,7 @@
       };
       return;
     }
-    show(noteBox('出馬表が公開されたら、この端末に通知が届きます。', [['届くとき', '週1回まで'], ['保存するもの', '通知を届けるための、この端末の送り先（通知をやめると消えます）']]) + btns('<button class="btn green block" id="pon">通知をオンにする</button>'));
+    show(noteBox('出馬表が公開されたら、この端末に通知が届きます。') + btns('<button class="btn green block" id="pon">通知をオンにする</button>'));
     document.getElementById('pon').onclick = async () => {
       // 許可を求めるのは、ボタンを押したその場でないといけない（iPhone の決まり）
       let perm;

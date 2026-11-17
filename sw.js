@@ -9,10 +9,12 @@ self.addEventListener('push', e => {
     tag: 'shutsuba', icon: 'assets/pwa/icons/default-192.png',
   }));
 });
+// 通知を押したら、今週の出馬表（予想タブ）を開く。アプリが開いていればそれを前に出して知らせ、閉じていれば開き直す
 self.addEventListener('notificationclick', e => {
   e.notification.close();
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
-    const mine = list.find(c => c.url.startsWith(self.registration.scope));
-    return mine ? mine.focus() : self.clients.openWindow(self.registration.scope);
+    const mine = list.find(c => c.url.startsWith(self.registration.scope) && !/[?&]post(=|&|$)/.test(c.url));
+    if (mine) { mine.postMessage({ type: 'openYoso' }); return mine.focus(); }
+    return self.clients.openWindow(self.registration.scope + '?tab=yoso');
   }));
 });
