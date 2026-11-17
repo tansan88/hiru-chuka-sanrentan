@@ -189,7 +189,8 @@ a{color:var(--turf)}
 
 /* メニュー（引き出し） */
 .scrim{position:fixed;inset:0;background:rgba(15,25,20,.55);z-index:20;animation:fade .2s}
-.drawer{position:fixed;top:0;bottom:0;right:0;width:min(320px,82vw);background:#FFF;z-index:21;display:flex;flex-direction:column;animation:slide .22s ease-out}
+.drawer{position:fixed;top:0;bottom:0;right:0;width:min(320px,82vw);background:#FFF;z-index:21;display:flex;flex-direction:column;animation:slide .22s ease-out;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding-bottom:env(safe-area-inset-bottom)}
+.drawer>*{flex-shrink:0}
 @keyframes slide{from{transform:translateX(100%)}to{transform:none}}
 @keyframes fade{from{opacity:0}to{opacity:1}}
 .drawer .who{padding:16px;border-bottom:1px solid var(--line);font-size:17px;font-weight:900}
