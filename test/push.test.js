@@ -51,8 +51,8 @@ r = call('pushTest', { token: g, endpoint: ep });
 const req = G.UrlFetchApp.calls[0] && G.UrlFetchApp.calls[0][0];
 ok(r.ok && r.sent === 1 && G.UrlFetchApp.calls[0].length === 1 && req.url === ep, '自分の端末にだけ送る', r);
 ok(req && req.method === 'post' && req.payload === '' && req.headers.TTL && /^vapid t=[^,]+, k=/.test(req.headers.Authorization) && req.headers.Authorization.endsWith('k=' + pub), '送る形（本文なし・vapid t=…, k=…）', req && req.headers);
-call('pushTest', { token: g, endpoint: ep }); call('pushTest', { token: g, endpoint: ep });
-ok(/10分に3回/.test(call('pushTest', { token: g, endpoint: ep }).error), '試しに送るのは10分に3回まで');
+for (let i = 0; i < 4; i++) call('pushTest', { token: g, endpoint: ep });
+ok(/1分に5回/.test(call('pushTest', { token: g, endpoint: ep }).error), '試しに送るのは1分に5回まで');
 
 // ---- 出馬表を公開したら送る（週1回まで） ----
 const wk = call('hostState', { token: h }).suggest;

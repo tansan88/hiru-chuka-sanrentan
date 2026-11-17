@@ -157,14 +157,14 @@ const API = {
     if (rows.length) { deleteRows_('通知', rows); log_(u.id, u.nick, '通知', 'オフ'); }
     return {};
   },
-  // 自分の端末にだけ試しに送る（10分に3回まで）
+  // 自分の端末にだけ試しに送る（1分に5回まで）
   pushTest(r) {
     const u = auth_(r), ep = String(r.endpoint || '');
     const rows = rowsAuto_('通知').filter(x => x.参加者ID === u.id && (!ep || String(x.送り先) === ep));
     if (!rows.length) fail_('この端末の通知がオンになっていません');
     const p = PropertiesService.getScriptProperties(), key = 'pushTest_' + u.id, now = Date.now();
-    const hist = String(p.getProperty(key) || '').split(',').map(Number).filter(t => t && now - t < 600000);
-    if (hist.length >= 3) fail_('試しに送れるのは10分に3回までです');
+    const hist = String(p.getProperty(key) || '').split(',').map(Number).filter(t => t && now - t < 60000);
+    if (hist.length >= 5) fail_('試しに送れるのは1分に5回までです');
     p.setProperty(key, hist.concat(now).join(','));
     const res = sendPush_(rows);
     if (!res.sent) fail_('送れませんでした。通知をいったんやめて、もう一度オンにしてください');
