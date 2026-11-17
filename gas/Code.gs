@@ -23,9 +23,11 @@ const SHEETS = {
   エラー: ['日時', '種類', '操作', '内容', '詳しい情報'],
   問い合わせ: ['日時', '参加者ID', 'ニックネーム', '種類', '内容', '対応メモ'],
   通知: ['登録日時', '参加者ID', 'ニックネーム', '送り先', 'p256dh', 'auth'],
+  お知らせ: ['日付', '見出し', '本文'],
+  お知らせ既読: ['参加者ID', 'ニックネーム', '既読', '日時'],
 };
 // あとから増えたシート（無ければ自動で作る）
-const AUTO_SHEETS = ['補充', 'レビュー', 'クイズ', 'エラー', '問い合わせ', '通知'];
+const AUTO_SHEETS = ['補充', 'レビュー', 'クイズ', 'エラー', '問い合わせ', '通知', 'お知らせ', 'お知らせ既読'];
 const CONTACT_KINDS = ['不具合', '質問', '要望', 'その他'];
 const DAYS = ['火', '水', '木'];
 const DEFAULT_SETTINGS = [
@@ -105,7 +107,7 @@ function doPost(e) {
   if (req.action !== 'clientError' && (Number(req.v) || 0) < MIN_APP_VERSION) return json_({ ok: false, reload: true, error: 'アプリが新しくなりました。画面を開き直してください' });
   // 読むだけの操作は順番待ちをしない（書き込みだけ1件ずつ処理する）
   // readMenu は文字認識に数秒かかるが、シートには書かないので順番待ちをしない
-  const readOnly = ['state', 'history', 'week', 'hostState', 'clientError', 'readMenu', 'postMenus', 'pushKey'].indexOf(req.action) >= 0;
+  const readOnly = ['state', 'history', 'week', 'hostState', 'clientError', 'readMenu', 'postMenus', 'pushKey', 'notices'].indexOf(req.action) >= 0;
   const lock = readOnly ? null : LockService.getScriptLock();
   try {
     if (lock) lock.waitLock(20000);
@@ -132,6 +134,17 @@ function fail_(msg) { throw new UserError(msg); }
 function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 
 const API = {
+  // --- お知らせ ---
+  notices(r) { auth_(r); return { list: notices_().slice(0, 30) }; },
+  noticeRead(r) {
+    const u = auth_(r), key = String(r.key || '');
+    if (!notices_().some(n => n.key === key)) return {};
+    const cur = rowsAuto_('お知らせ既読').find(x => x.参加者ID === u.id);
+    const row = [u.id, txt_(u.nick), txt_(key), new Date()];
+    if (cur) sheet_('お知らせ既読').getRange(cur._row, 1, 1, row.length).setValues([row]);
+    else sheet_('お知らせ既読').appendRow(row);
+    return {};
+  },
   // --- 通知（PWA） ---
   pushKey(r) { auth_(r); return { key: vapidKeys_().pub }; },
   pushSubscribe(r) {
@@ -239,6 +252,9 @@ const API = {
     const settled = db.weeks.filter(w => w.状態 === '確定' || w.状態 === '返還').sort(byWeekDesc_);
     if (settled[0]) out.lastResult = weekView_(settled[0], u, db, true);
     out.hasPrevResult = settled.length > 0;
+    // まだ読んでいない最新のお知らせ（ログインしたときに1件だけポップアップで出す）
+    const nl = notices_();
+    if (nl.length && noticeSeen_(u.id) !== nl[0].key) out.notice = nl[0];
     return out;
   },
   predict(r) {
@@ -362,6 +378,8 @@ const API = {
   },
   hostState(r) {
     const u = authHost_(r);
+    // お知らせを書くシートが無ければ作っておく（ホストがシートに行を足して書く）
+    if (!findSheet_('お知らせ')) { try { sheet_('お知らせ'); } catch (e) {} }
     const db = load_();
     const w = db.weeks.filter(x => x.状態 === '下書き' || x.状態 === '受付中').sort(byWeekDesc_)[0];
     const out = { odds: oddsTable_(), suggest: suggestNextWeek_(db), raceNames: raceNames_(db), rounds: {}, regulars: regulars_(), test: !!envSuffix_() };
@@ -797,20 +815,23 @@ function resetCache_() { SS_ = null; SHEET_ = {}; ENV_ = null; SETTINGS_ = null;
 // よく使うシートを、Sheets API で1回の問い合わせでまとめて読んでおく（1枚ずつ読むと1枚0.2〜0.6秒かかる）
 // 使えないとき（Sheets API が無効など）は何もしない＝今までどおり1枚ずつ読む
 const PREFETCH_SHEETS = ['参加者', '週', 'メニュー', '結果', '予想', '獲得pt', '設定'];
-const DATE_HEADS_ = ['締切', '公開日時', '確定日時', '日時', '登録日時'];
+const PREFETCH_OPTIONAL_ = ['お知らせ', 'お知らせ既読'];
+const DATE_HEADS_ = ['締切', '公開日時', '確定日時', '日時', '登録日時', '日付'];
 function prefetch_() {
   const tp = Date.now();
   try {
     if (typeof Sheets === 'undefined' || !Sheets.Spreadsheets) return;
+    // お知らせのシートは、あるときだけ一緒に読む（無いシートを頼むと全部が失敗するため）
+    const names = PREFETCH_SHEETS.concat(PREFETCH_OPTIONAL_.filter(n => findSheet_(n)));
     const col = n => String.fromCharCode(64 + n);
     const res = Sheets.Spreadsheets.Values.batchGet(ss_().getId(), {
-      ranges: PREFETCH_SHEETS.map(n => "'" + n + "'!A1:" + col(SHEETS[n].length)),
+      ranges: names.map(n => "'" + n + "'!A1:" + col(SHEETS[n].length)),
       valueRenderOption: 'UNFORMATTED_VALUE', dateTimeRenderOption: 'SERIAL_NUMBER',
     });
     const vr = res && res.valueRanges;
-    if (!vr || vr.length !== PREFETCH_SHEETS.length) return;
+    if (!vr || vr.length !== names.length) return;
     const tz = ss_().getSpreadsheetTimeZone() || Session.getScriptTimeZone();
-    PREFETCH_SHEETS.forEach((n, k) => { ROWS_[n] = { raw: fromApi_(n, vr[k].values || [], tz) }; });
+    names.forEach((n, k) => { ROWS_[n] = { raw: fromApi_(n, vr[k].values || [], tz) }; });
     prof_('まとめ読み', tp);
   } catch (e) { ROWS_ = {}; prof_('まとめ読み失敗', tp); }
 }
@@ -1074,6 +1095,23 @@ function notifyError_(kind, action, message, force) {
   return true;
 }
 // 最初に1回だけエディタから実行して、メール送信を許可する（テストのメールが届きます）
+// ---------- お知らせ ----------
+// 「お知らせ」シートに 日付・見出し・本文 の行を足すと出る（新しい日付が上）。日付が先のものは、その日になるまで出さない
+// 見分けるための鍵は「日付＋見出し」から作る（行の並びを変えても既読がずれない）
+function notices_() {
+  const tz = Session.getScriptTimeZone(), today = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  return rowsAuto_('お知らせ').map(x => {
+    const d = x.日付 instanceof Date ? x.日付 : (x.日付 ? new Date(x.日付) : null);
+    const title = String(x.見出し || '').trim();
+    if (!d || isNaN(d) || !title) return null;
+    const ds = Utilities.formatDate(d, tz, 'yyyy-MM-dd');
+    if (ds > today) return null;
+    const key = sha256_(asciiBytes_(unescape(encodeURIComponent(ds + '|' + title)))).slice(0, 6).map(b => ('0' + b.toString(16)).slice(-2)).join('');
+    return { key, date: ds, title, body: String(x.本文 || ''), _row: x._row };
+  }).filter(Boolean).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b._row - a._row)).map(n => ({ key: n.key, date: n.date, title: n.title, body: n.body }));
+}
+function noticeSeen_(id) { const r = rowsAuto_('お知らせ既読').find(x => x.参加者ID === id); return r ? String(r.既読) : ''; }
+
 // ---------- 出馬表公開の通知（PWAのプッシュ通知） ----------
 // 本文なしで送る（本文の暗号化が要らない）。iPhone では service worker が決まった文を出す
 // 送り主の証明（VAPID）は ES256（P-256 の楕円曲線署名）。Apps Script に無いので、ここで計算する

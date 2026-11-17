@@ -146,7 +146,7 @@
         res = await send();
       }
       if (!res.ok) {
-        if (res.reload) { showReload(); const e = new Error(res.error || ''); e.silent = true; throw e; }
+        if (res.reload) { showReload(action); const e = new Error(res.error || ''); e.silent = true; throw e; }
         if (/ログインしてください$/.test(res.error || '')) { logout(true); }
         const se = new Error(res.error || 'うまくいきませんでした'); se.server = true; throw se;
       }
@@ -163,6 +163,7 @@
   async function refresh(opt) {
     S.data = await api('state', {}, opt);
     render();
+    maybeNotice();
   }
   function logout(silent) {
     S.token = null; store.set('hc_token', null); S.data = null; S.screen = null; S.authMode = 'login'; S.host = null; S.hp = null; closeLayer();
@@ -637,9 +638,18 @@
     $layer.querySelectorAll('[data-close]').forEach(b => b.onclick = closeLayer);
     document.addEventListener('keydown', escClose);
   }
-  // 画面が古いとき：選んでいた予想を残して、開き直してもらう（閉じるボタンは出さない）
-  function showReload() {
+  // 画面が古いとき：選んでいた予想を残して、自動で開き直す
+  // 開いたときの読み込みなど、利用者の操作でないときは黙って開き直す。操作の途中なら、開き直したあとに一言出す
+  // 30秒以内に2回目になったら（古いファイルが残っているなど）、開き直しが続かないよう案内を出して止める
+  const RELOAD_QUIET = ['state', 'hostState', 'history', 'week', 'postMenus', 'notices', 'pushKey'];
+  function showReload(action) {
     try { const v = S.data && S.data.current; if (v) sessionStorage.setItem(store.key('hc_draft'), JSON.stringify({ weekId: v.weekId, picks: S.picks, bet: S.bet })); } catch (e) {}
+    let last = 0;
+    try { last = Number(sessionStorage.getItem('hc_reload_at') || 0); } catch (e) {}
+    if (Date.now() - last > 30000) {
+      try { sessionStorage.setItem('hc_reload_at', String(Date.now())); if (RELOAD_QUIET.indexOf(action) < 0) sessionStorage.setItem('hc_reload_msg', '1'); } catch (e) {}
+      location.reload(); return;
+    }
     openLayer(`<div class="scrim"></div><div class="rl" role="alertdialog" aria-labelledby="rlt" aria-describedby="rld">
       ${chefImg('surprise', 'rl-chef')}
       <b id="rlt">アプリが新しくなりました</b>
@@ -656,7 +666,7 @@
       <div class="bar" style="position:static"><b style="font-size:15px">メニュー</b><button class="ibtn" data-close aria-label="閉じる" style="font-size:16px">✕</button></div>
       <div class="who">${esc(D.me.nick)}</div>
       <div class="bal"><span>持ち点</span><b>${fmt(D.me.balance)} <span style="font-size:13px">pt</span></b></div>
-      <nav class="mlist">${D.me.canRefill ? '<button data-m="refill" class="mrf">ptを補充する</button>' : ''}<span class="sec">記録</span><button data-m="history">過去の結果</button><button data-m="rule">ルール</button><button data-m="contact">問い合わせ</button><button data-m="post">Slackへの投稿をつくる</button>
+      <nav class="mlist">${D.me.canRefill ? '<button data-m="refill" class="mrf">ptを補充する</button>' : ''}<span class="sec">記録</span><button data-m="notice">お知らせ</button><button data-m="history">過去の結果</button><button data-m="rule">ルール</button><button data-m="contact">問い合わせ</button><button data-m="post">Slackへの投稿をつくる</button>
       <span class="sec" style="border-top:1px solid var(--line)">アカウント</span><button data-m="nick">ニックネームを変える</button><button data-m="pass">パスワードを変える</button><button data-m="icon">アプリのアイコン</button><button data-m="notify">通知</button></nav>
       <div style="margin-top:auto;padding:16px"><button class="btn block" data-m="logout" style="border:1.5px solid var(--red);background:#FFF;color:var(--red);font-weight:700">ログアウト</button></div></aside>`);
     $layer.querySelectorAll('[data-m]').forEach(b => b.onclick = () => {
@@ -692,6 +702,28 @@
         <div><b style="color:var(--ink)">中止の日</b>　メニュー外を食べた日や休みの日がある週は、使ったptを全額返します。当たり・はずれは記録だけ残ります。</div>
         <div><b style="color:var(--ink)">持ち点が100ptを切ったら</b>　「ptを補充する」から、豆知識クイズ（満額＋${fmt(fullPt('quiz'))}pt）かレビュー（満額＋${fmt(fullPt('review'))}pt）で補充できます。${esc(refillRuleTxt())}</div>
       </div></div></div>`);
+  }
+
+  // ---------- お知らせ ----------
+  const noticeBody = t => esc(t).replace(/\n/g, '<br>');
+  const noticeDate = d => { const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? `${Number(m[1])}/${Number(m[2])}/${Number(m[3])}` : esc(d); };
+  // ログインしたとき、まだ読んでいない最新のお知らせを1件だけ出す（出した時点で既読にする）
+  function maybeNotice() {
+    const n = S.data && S.data.notice;
+    if (!n || POST_MODE || S.screen || $layer.innerHTML || S.noticeShown === n.key) return;
+    S.noticeShown = n.key;
+    openLayer(`<div class="scrim" data-close></div><div class="sheet" role="dialog" aria-label="お知らせ"><div class="grab"><span></span></div>
+      <div class="sh"><h2>お知らせ</h2><button class="xbtn" data-close aria-label="閉じる">✕</button></div>
+      <div class="ntc"><small>${noticeDate(n.date)}</small><b>${esc(n.title)}</b><p>${noticeBody(n.body)}</p></div>
+      <div style="padding:4px 16px 18px"><button class="btn green block" data-close>閉じる</button></div></div>`);
+    api('noticeRead', { key: n.key }, { loading: false, quiet: true }).then(() => { if (S.data) S.data.notice = null; }).catch(() => {});
+  }
+  async function renderNotices() {
+    const show = html => { if (S.screen !== 'notice') return; $app.innerHTML = subBar('お知らせ') + html; document.getElementById('back').onclick = () => { S.screen = null; render(); }; };
+    show('<p style="padding:16px;color:var(--sub);margin:0">読み込み中…</p>');
+    let list = [];
+    try { list = (await api('notices', {}, { loading: false })).list || []; } catch (e) { return; }
+    show(list.length ? `<div class="ntlist">${list.map(n => `<div class="ntc"><small>${noticeDate(n.date)}</small><b>${esc(n.title)}</b><p>${noticeBody(n.body)}</p></div>`).join('')}</div>` : '<p style="padding:16px;color:var(--sub);margin:0">お知らせはまだありません</p>');
   }
 
   // ---------- 通知（PWA） ----------
@@ -756,6 +788,7 @@
       bindResult(S.view); return;
     }
     if (sc === 'notify') { renderNotify(); return; }
+    if (sc === 'notice') { renderNotices(); return; }
     if (sc === 'icon') {
       const cur = iconId();
       const note = IS_STANDALONE
@@ -1168,6 +1201,14 @@
 
   // ---------- 起動 ----------
   render();
+  try { if (sessionStorage.getItem('hc_reload_msg')) { sessionStorage.removeItem('hc_reload_msg'); setTimeout(() => toast('アプリが新しくなりました。直前の操作をもう一度お願いします'), 600); } } catch (e) {}
+  // しばらく閉じていたアプリに戻ってきたら、読み直す（画面が古ければここで自動で開き直る）
+  let hiddenAt = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { hiddenAt = Date.now(); return; }
+    if (hiddenAt && Date.now() - hiddenAt > 5 * 60000 && S.token && S.data && !POST_MODE && !S.editing && !S.screen && !$layer.innerHTML) refresh({ loading: false, quiet: true }).catch(() => {});
+    hiddenAt = 0;
+  });
   if (S.token && !POST_MODE) {
     if (S.tab === 'host') loadHost(true).then(() => { if (!S.data) refresh().catch(() => {}); });
     else refresh().then(() => { if (S.tab === 'kekka') maybeGong(S.data.lastResult); }).catch(() => {});
