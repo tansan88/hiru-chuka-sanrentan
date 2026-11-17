@@ -702,9 +702,9 @@
     if (sc === 'icon') {
       const cur = iconId();
       const note = IS_STANDALONE
-        ? 'ホーム画面から開いているので、ここでは変えられません。変えたいときは、ホーム画面のアイコンを消してから、Safariで開いてアイコンを選び、追加し直してください（ログインもし直しになります）。'
-        : '選んだアイコンで、ホーム画面に追加されます（Safariの共有ボタン →「ホーム画面に追加」）。追加したあとに変えたいときは、ホーム画面のアイコンを消して、選び直してから追加し直してください（ログインもし直しになります）。';
-      $app.innerHTML = subBar('アプリのアイコン') + `<p class="icnote">${note}</p><div class="iclist">${ICONS.map(([id, name]) => `<button class="icrow${!IS_STANDALONE && id === cur ? ' on' : ''}" data-i="${id}" ${IS_STANDALONE ? 'disabled' : ''}><img src="${iconSrc(id, 180)}" alt="" width="52" height="52" loading="lazy"><span>${name}</span><i class="ck" aria-hidden="true"></i></button>`).join('')}</div>`;
+        ? '<span class="lead">ホーム画面から開いているので、ここでは変えられません。</span><span><b>変えるとき</b>ホーム画面のアイコンを消す → Safariで開いて選ぶ → 追加し直す</span>'
+        : '<span class="lead">選んだアイコンで、ホーム画面に追加されます。</span><span><b>追加のしかた</b>Safariの共有ボタン →「ホーム画面に追加」</span><span><b>変えるとき</b>ホーム画面のアイコンを消す → 選び直す → 追加し直す</span>';
+      $app.innerHTML = subBar('アプリのアイコン') + `<div class="icnote">${note}</div><div class="iclist">${ICONS.map(([id, name]) => `<button class="icrow${!IS_STANDALONE && id === cur ? ' on' : ''}" data-i="${id}" ${IS_STANDALONE ? 'disabled' : ''}><img src="${iconSrc(id, 180)}" alt="" width="52" height="52" loading="lazy"><span>${name}</span><i class="ck" aria-hidden="true"></i></button>`).join('')}</div>`;
       document.getElementById('back').onclick = () => { S.screen = null; render(); };
       $app.querySelectorAll('[data-i]').forEach(b => b.onclick = () => {
         store.set('pwa_icon', b.dataset.i); applyIcon();

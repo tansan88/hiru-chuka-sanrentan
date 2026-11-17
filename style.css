@@ -500,7 +500,10 @@ input[type=date]:disabled{color:var(--sub);background:var(--bg)}
 @keyframes led-hot{0%,100%{box-shadow:0 0 0 0 rgba(247,181,0,.55)}50%{box-shadow:0 0 0 7px rgba(247,181,0,0)}}
 @media (prefers-reduced-motion: reduce){.led .l1.blink,.led .mq span,.mk.wait.hot{animation:none!important}}
 /* アプリのアイコン（ホーム画面に追加するときのアイコンを選ぶ） */
-.icnote{margin:0;padding:12px 16px;font-size:12px;line-height:1.7;color:var(--sub);background:#FFF;border-bottom:1px solid var(--line)}
+.icnote{padding:14px 16px;background:#FFF;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.5;color:var(--sub)}
+.icnote .lead{font-size:14px;font-weight:700;color:var(--ink)}
+.icnote span:not(.lead){display:grid;grid-template-columns:6.2em 1fr;align-items:baseline}
+.icnote b{color:var(--turf);font-size:12px}
 .iclist{background:#FFF}
 .icrow{display:flex;align-items:center;gap:14px;width:100%;padding:10px 16px;background:#FFF;border:0;border-bottom:1px solid var(--line);font:inherit;font-size:15px;font-weight:700;color:var(--ink);text-align:left;cursor:pointer}
 .icrow img{width:52px;height:52px;border-radius:12px;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.08)}
