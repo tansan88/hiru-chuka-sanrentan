@@ -22,12 +22,16 @@
   // ?post を付けて開くと「Slackへの投稿をつくる」だけの画面（ログイン不要・アプリには何も記録しない）
   const POST_MODE = /[?&]post(=|&|$)/.test(location.search);
   // ホーム画面に追加したときの名前とアイコン（PWA）。テスト環境（/test/）は名前とアイコンに「テスト」が付く
+  // アイコンは参加者が選べる（メニューの「アプリのアイコン」）。iPhone は追加した瞬間の apple-touch-icon を使うので、選べるのは追加する前だけ
+  const PWA_TEST = /\/test\//.test(location.pathname);
+  const ICONS = [['default', '既定'], ['light', 'ライト'], ['dark', 'ダーク'], ['red', '赤'], ['neon', 'ネオン'], ['neonblue', 'ネオン青'], ['led', '電光掲示板'], ['gold', '金の雷紋'], ['3d', '3D'], ['holo', 'ホロ'], ['yoichi', '夜市'], ['seika', '青花'], ['chochin', '提灯'], ['keiba', '競馬新聞'], ['hisui', '翡翠']];
+  const IS_STANDALONE = window.navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+  const iconSrc = (id, size) => 'assets/pwa/icons/' + id + (PWA_TEST ? '-test' : '') + '-' + size + '.png';
   (function () {
-    const sfx = (POST_MODE ? '-post' : '') + (/\/test\//.test(location.pathname) ? '-test' : '');
     const head = document.head;
-    const link = (rel, href) => { const l = document.createElement('link'); l.rel = rel; l.href = href; head.appendChild(l); };
-    link('manifest', 'assets/pwa/manifest' + sfx + '.webmanifest');
-    link('apple-touch-icon', 'assets/pwa/icon' + (/\/test\//.test(location.pathname) ? '-test' : '') + '-180.png');
+    const link = (rel, href, id) => { const l = document.createElement('link'); l.rel = rel; l.href = href; if (id) l.id = id; head.appendChild(l); };
+    link('manifest', 'assets/pwa/manifest' + (POST_MODE ? '-post' : '') + (PWA_TEST ? '-test' : '') + '.webmanifest');
+    link('apple-touch-icon', iconSrc('default', 180), 'touchicon');
   })();
   const HIRU_STAMP = ':hirucyuuka:';
   const OTHER_NAME = 'その他';
@@ -41,6 +45,10 @@
     get(k) { try { return localStorage.getItem(store.key(k)); } catch (e) { return null; } },
     set(k, v) { try { v == null ? localStorage.removeItem(store.key(k)) : localStorage.setItem(store.key(k), v); } catch (e) {} },
   };
+  function iconId() { const v = store.get('pwa_icon'); return ICONS.some(x => x[0] === v) ? v : 'default'; }
+  function applyIcon() { const l = document.getElementById('touchicon'); if (l) l.href = iconSrc(iconId(), 180); }
+  applyIcon();
+
 
   const S = { post: { ph: null, name: '' }, dayOther: {}, token: store.get('hc_token'), data: null, tab: store.get('hc_tab') || 'yoso', screen: null, editing: false, picks: {}, bet: '', host: null, hp: null, redo: {}, photo: {}, sending: {}, view: null, hist: null, authMode: 'login' };
 
@@ -635,7 +643,7 @@
       <div class="who">${esc(D.me.nick)}</div>
       <div class="bal"><span>持ち点</span><b>${fmt(D.me.balance)} <span style="font-size:13px">pt</span></b></div>
       <nav class="mlist">${D.me.canRefill ? '<button data-m="refill" class="mrf">ptを補充する</button>' : ''}<span class="sec">記録</span><button data-m="history">過去の結果</button><button data-m="rule">ルール</button><button data-m="contact">問い合わせ</button><button data-m="post">Slackへの投稿をつくる</button>
-      <span class="sec" style="border-top:1px solid var(--line)">アカウント</span><button data-m="nick">ニックネームを変える</button><button data-m="pass">パスワードを変える</button></nav>
+      <span class="sec" style="border-top:1px solid var(--line)">アカウント</span><button data-m="nick">ニックネームを変える</button><button data-m="pass">パスワードを変える</button><button data-m="icon">アプリのアイコン</button></nav>
       <div style="margin-top:auto;padding:16px"><button class="btn block" data-m="logout" style="border:1.5px solid var(--red);background:#FFF;color:var(--red);font-weight:700">ログアウト</button></div></aside>`);
     $layer.querySelectorAll('[data-m]').forEach(b => b.onclick = () => {
       const m = b.dataset.m; closeLayer();
@@ -690,6 +698,19 @@
       $app.innerHTML = subBar('過去の結果') + resultView(S.view);
       document.getElementById('back').onclick = () => { S.screen = 'history'; render(); };
       bindResult(S.view); return;
+    }
+    if (sc === 'icon') {
+      const cur = iconId();
+      const note = IS_STANDALONE
+        ? 'ホーム画面から開いているので、ここでは変えられません。変えたいときは、ホーム画面のアイコンを消してから、Safariで開いてアイコンを選び、追加し直してください（ログインもし直しになります）。'
+        : '選んだアイコンで、ホーム画面に追加されます（Safariの共有ボタン →「ホーム画面に追加」）。追加したあとに変えたいときは、ホーム画面のアイコンを消して、選び直してから追加し直してください（ログインもし直しになります）。';
+      $app.innerHTML = subBar('アプリのアイコン') + `<p class="icnote">${note}</p><div class="iclist">${ICONS.map(([id, name]) => `<button class="icrow${!IS_STANDALONE && id === cur ? ' on' : ''}" data-i="${id}" ${IS_STANDALONE ? 'disabled' : ''}><img src="${iconSrc(id, 180)}" alt="" width="52" height="52" loading="lazy"><span>${name}</span><i class="ck" aria-hidden="true"></i></button>`).join('')}</div>`;
+      document.getElementById('back').onclick = () => { S.screen = null; render(); };
+      $app.querySelectorAll('[data-i]').forEach(b => b.onclick = () => {
+        store.set('pwa_icon', b.dataset.i); applyIcon();
+        $app.querySelectorAll('.icrow').forEach(x => x.classList.toggle('on', x === b));
+      });
+      return;
     }
     if (sc === 'nick') {
       $app.innerHTML = subBar('ニックネームを変える') + `<form class="form" id="f"><div class="field"><span>今のニックネーム</span><span class="ro">${esc(S.data.me.nick)}</span></div><label class="field"><span>新しいニックネーム</span><input id="nn" maxlength="16" required></label><div class="err" id="er"></div><button class="btn green block">変更する</button></form>`;
