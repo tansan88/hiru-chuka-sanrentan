@@ -570,7 +570,7 @@
         ${(P.menus || []).length ? `<label class="field"><span>今週のメニューから選ぶ</span><select id="pmenu"><option value="">選んでください</option>${P.menus.map((m, i) => `<option value="${i}" ${P.name.trim() === m.name ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>` : ''}
         <label class="field"><span>メニュー名</span><input id="pname" maxlength="40" value="${esc(P.name)}" placeholder="例：麻婆豆腐" enterkeyhint="done"></label>
         <button class="btn slack block" id="psend" ${ready ? '' : 'disabled'}>Slackに送る</button>
-        <span class="pnote"><b>①</b> 共有の画面で Slack を選び、送り先のチャンネルを選ぶ<br><b>②</b> メッセージ欄を長押しして「ペースト」（文字はコピー済み）<br><b>③</b> 送信<br>この画面で作った投稿は、アプリには記録されません。</span>
+        <span class="pnote"><b>①</b> 共有の画面で Slack を選び、送り先のチャンネルを選ぶ<br><b>②</b> メッセージ欄を長押しして「ペースト」（文字はコピー済み）<br><b>③</b> 送信<br>送ったメニューは「食べたもの」として記録します（予想の配当には関係しません）。</span>
         <div class="post-foot"><a class="lnk" href="${esc(appUrl())}">昼中華3連単を開く ›</a></div>
       </div>`;
     const take = cam => picker.open(cam, ph => { P.ph = ph; render(); });
@@ -578,7 +578,7 @@
     document.getElementById('palb').onclick = () => take(false);
     const nm = document.getElementById('pname');
     nm.oninput = () => { P.name = nm.value; document.getElementById('psend').disabled = !(P.ph && P.name.trim()); const sel = document.getElementById('pmenu'); if (sel) { const i = (P.menus || []).findIndex(m => m.name === P.name.trim()); sel.value = i >= 0 ? String(i) : ''; } };
-    document.getElementById('psend').onclick = () => { if (P.ph && P.name.trim()) sharePost(P.ph, P.name.trim()); };
+    document.getElementById('psend').onclick = () => { if (P.ph && P.name.trim()) { sharePost(P.ph, P.name.trim()); if (P.logged !== P.name.trim()) { P.logged = P.name.trim(); api('postLog', { token: store.get('hc_token') || '', name: P.logged }, { loading: false, quiet: true }).catch(() => { P.logged = ''; }); } } };
     const pm = document.getElementById('pmenu');
     if (pm) pm.onchange = () => { if (pm.value === '') return; P.name = P.menus[Number(pm.value)].name; nm.value = P.name; nm.oninput(); };
     // その週のメニューを後ろで読み込む（ログインなしで読める。読めなければ手入力だけ）

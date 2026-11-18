@@ -25,10 +25,11 @@ const SHEETS = {
   通知: ['登録日時', '参加者ID', 'ニックネーム', '送り先', 'p256dh', 'auth'],
   お知らせ: ['日付', '見出し', '本文', '種類'],
   お知らせ既読: ['参加者ID', 'ニックネーム', '既読', '日時'],
+  食事の記録: ['食べた日', '曜日', '週ID', '枠', '品名', '参加者ID', 'ニックネーム', '誰の記録か', '日時'],
   AI予想: ['週ID', '参加者ID', 'ニックネーム', 'モデル', 'エフォート', 'pt', '日時', '中身'],
 };
 // あとから増えたシート（無ければ自動で作る）
-const AUTO_SHEETS = ['補充', 'レビュー', 'クイズ', 'エラー', '問い合わせ', '通知', 'お知らせ', 'お知らせ既読', 'AI予想'];
+const AUTO_SHEETS = ['補充', 'レビュー', 'クイズ', 'エラー', '問い合わせ', '通知', 'お知らせ', 'お知らせ既読', 'AI予想', '食事の記録'];
 const CONTACT_KINDS = ['不具合', '質問', '要望', 'その他'];
 const DAYS = ['火', '水', '木'];
 const DEFAULT_SETTINGS = [
@@ -519,6 +520,21 @@ const API = {
     if (!w) return { menus: [] };
     return { menus: db.menus.filter(m => m.週ID === w.週ID && String(m.品名) !== OTHER_NAME).sort((a, b) => Number(a.枠) - Number(b.枠)).map(m => ({ waku: Number(m.枠), name: String(m.品名) })) };
   },
+  // 投稿をつくる：送ったメニューを「食事の記録」に残す（ゲームの配当には関係しない。AI予想の手がかりにする）
+  // ログインしていればその人、していなければ今週の担当ホストが食べたものとみなす
+  postLog(r) {
+    const name = String(r.name || '').trim().slice(0, 40);
+    if (!name) fail_('メニュー名を入れてください');
+    let u = null; try { if (r.token) u = auth_(r); } catch (e) { u = null; }
+    const db = load_();
+    const wid = weekIdOf_();
+    const w = db.weeks.find(x => x.週ID === wid && x.状態 !== '下書き') || currentWeek_(db);
+    const now = new Date();
+    const m = w ? db.menus.find(x => x.週ID === w.週ID && String(x.品名).trim() === name) : null;
+    const uid = u ? u.id : (w ? w.担当ホストID : ''), nick = u ? u.nick : (w ? w.担当ホスト : '');
+    sheet_('食事の記録').appendRow([txt_(Utilities.formatDate(now, 'Asia/Tokyo', 'yyyy-MM-dd')), '日月火水木金土'.charAt(now.getDay()), txt_(w ? w.週ID : wid), m ? Number(m.枠) : '', txt_(name), uid, txt_(nick || ''), u ? 'ログインした人' : '担当ホストとみなす', now]);
+    return { saved: true };
+  },
   readMenu(r) {
     authHost_(r);
     const data = r.image && String(r.image.data || '');
@@ -749,6 +765,25 @@ function aiPredict_(db, w, modelId, effortId) {
   if (!cur.length) fail_('今週の出馬表がまだありません');
   const weeks = aiSamples_(db, w, E);
   const M = aiModel_(weeks, cur, lv, w.担当ホストID);
+  // 食事の記録（投稿をつくる）：今週の月曜に食べたもの・担当ホストがよく食べるもの
+  const lastOf = {};
+  (db.meals || []).filter(x => String(x.品名).trim()).forEach(x => { lastOf[String(x.食べた日) + x.参加者ID] = x; }); // 送り直しは最後の1件
+  const meals = Object.keys(lastOf).map(k => lastOf[k]);
+  const monday = lv >= 1 ? meals.filter(x => x.週ID === w.週ID && x.曜日 === '月').map(x => String(x.品名).trim()) : [];
+  let hostFav = null;
+  if (lv >= 2 && w.担当ホストID) {
+    const cnt = {};
+    meals.filter(x => x.参加者ID === w.担当ホストID && String(x.週ID) < String(w.週ID)).forEach(x => { const n = String(x.品名).trim(); cnt[n] = (cnt[n] || 0) + 1; });
+    db.weeks.filter(x => x.状態 === '確定' && x.担当ホストID === w.担当ホストID && String(x.週ID) < String(w.週ID)).forEach(pw => db.results.filter(r => r.週ID === pw.週ID && Number(r.枠) > 0).forEach(r => { const n = String(r.品名).trim(); cnt[n] = (cnt[n] || 0) + 1; }));
+    const cs = cur.map(m => cnt[m.name] || 0), mean = cs.reduce((a, b) => a + b, 0) / cs.length;
+    if (cs.some(c => c > 0)) {
+      const f = cs.map(c => Math.min(1.6, Math.max(0.6, (c + 1) / (mean + 1))));
+      DAYS.forEach(d => { const raw = M.p[d].map((x, i) => x * f[i]), sm = raw.reduce((a, b) => a + b, 0) || 1; M.p[d] = raw.map(x => x / sm); });
+      let bi = 0; cs.forEach((c, i) => { if (c > cs[bi]) bi = i; });
+      hostFav = { name: cur[bi].name, n: cs[bi] };
+    }
+  }
+  if (monday.length) DAYS.forEach(d => { const raw = M.p[d].map((x, i) => monday.indexOf(cur[i].name) >= 0 ? x * Math.min(1, M.rep) : x), sm = raw.reduce((a, b) => a + b, 0) || 1; M.p[d] = raw.map(x => x / sm); });
   // エフォート高：週を入れ替えて200回読み直し、その平均で予想する（たまたまの偏りに振り回されにくくする）
   // 200回＝平均のぶれが十分小さくなり、1年分のデータでも数秒で終わる回数
   const BOOT = 200, bootTop = [];
@@ -812,6 +847,11 @@ function aiPredict_(db, w, modelId, effortId) {
     const a = DAYS.map(d => days[d][2]).filter(Boolean).sort((x, y) => y.p * y.odds - x.p * x.odds)[0];
     if (a) think.push('▲の「' + a.name + '」はいまの倍率' + r1(a.odds) + '倍。当たる見込み' + a.p + '%の割に配当がよく、妙味があります');
   }
+  // 食事の記録から読んだことは、考えた過程の前のほうに出す（エフォートが低くても見えるように）
+  const extra = [];
+  if (monday.length) extra.push('今週の月曜は「' + monday[monday.length - 1] + '」を食べています。火〜木に続けて出る見込みは' + (M.rep < 0.9 ? '下げて' : 'そのままで') + '読みます');
+  if (hostFav) extra.push('今週の担当ホストがこれまでにいちばん多く食べたのは「' + hostFav.name + '」（' + hostFav.n + '回）。少し重く読みます');
+  think.splice(Math.min(2, think.length), 0, ...extra);
   if (conf) think.push('過去の週を200通りに入れ替えて読み直し、その平均で予想しました。◎は200通りのうち' + conf.pct + '%で1位でした');
   const lim = Math.max(1, E.lines);
   const body = think.slice(0, lim);
@@ -1068,7 +1108,7 @@ function resetCache_() { SS_ = null; SHEET_ = {}; ENV_ = null; SETTINGS_ = null;
 // よく使うシートを、Sheets API で1回の問い合わせでまとめて読んでおく（1枚ずつ読むと1枚0.2〜0.6秒かかる）
 // 使えないとき（Sheets API が無効など）は何もしない＝今までどおり1枚ずつ読む
 const PREFETCH_SHEETS = ['参加者', '週', 'メニュー', '結果', '予想', '獲得pt', '設定'];
-const PREFETCH_OPTIONAL_ = ['お知らせ', 'お知らせ既読', 'AI予想'];
+const PREFETCH_OPTIONAL_ = ['お知らせ', 'お知らせ既読', 'AI予想', '食事の記録'];
 const DATE_HEADS_ = ['締切', '公開日時', '確定日時', '日時', '登録日時', '日付'];
 function prefetch_() {
   const tp = Date.now();
@@ -1144,7 +1184,7 @@ function rows_(name) {
   }).filter(o => o[head[0]] !== '');
 }
 function load_() {
-  return { weeks: rows_('週'), menus: rows_('メニュー'), results: rows_('結果'), preds: rows_('予想'), earn: rows_('獲得pt'), ai: rowsAuto_('AI予想') };
+  return { weeks: rows_('週'), menus: rows_('メニュー'), results: rows_('結果'), preds: rows_('予想'), earn: rows_('獲得pt'), ai: rowsAuto_('AI予想'), meals: rowsAuto_('食事の記録') };
 }
 function readUsers_() {
   return rows_('参加者').map(o => ({ _row: o._row, id: o.ID, nick: String(o.ニックネーム), pass: o.パスワード, salt: o.ソルト, host: o.ホスト, add: o.補充pt, token: o.ログイン鍵 }));
