@@ -241,7 +241,7 @@
       try {
         const r = await api(reg ? 'register' : 'login', { nick, pass });
         S.token = r.token; store.set('hc_token', r.token); S.tab = 'yoso';
-        if (r.state) { S.data = r.state; render(); } else await refresh(); // ログインの返事に画面の中身も入っている
+        if (r.state) { S.data = r.state; render(); maybeNotice(); } else await refresh(); // ログインの返事に画面の中身も入っている（お知らせもここで出す）
       } catch (e) { er.textContent = e.message; }
     };
   }
@@ -728,7 +728,11 @@
       <div class="meta">${n.kind ? `<span class="ntag ${kc}">${esc(n.kind)}</span>` : ''}<small>${noticeDate(n.date)}</small></div>
       <h3 id="nwt">${esc(n.title)}</h3>
       ${n.body ? `<div class="nbody">${noticeBody(n.body)}</div>` : ''}
+      ${n.more > 0 ? `<button class="nmore" id="nmore">ほかに新しいお知らせが${n.more}件あります</button>` : ''}
       <div class="foot"><button class="nclose" data-close>閉じる</button></div></div></div>`);
+    // ほかにも読んでいないお知らせがあれば、押すとお知らせの一覧を開く
+    const mo = document.getElementById('nmore');
+    if (mo) mo.onclick = () => { closeLayer(); S.screen = 'notice'; render(); };
     api('noticeRead', { key: n.key }, { loading: false, quiet: true }).then(() => { if (S.data) S.data.notice = null; }).catch(() => {});
   }
   async function renderNotices() {

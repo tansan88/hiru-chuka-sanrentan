@@ -253,8 +253,9 @@ const API = {
     if (settled[0]) out.lastResult = weekView_(settled[0], u, db, true);
     out.hasPrevResult = settled.length > 0;
     // まだ読んでいない最新のお知らせ（ログインしたときに1件だけポップアップで出す）
-    const nl = notices_();
-    if (nl.length && noticeSeen_(u.id) !== nl[0].key) out.notice = nl[0];
+    // more＝それより前の、まだ読んでいないお知らせの数（最後に見たものより新しいもの。一度も見ていなければ全部）
+    const nl = notices_(), seen = noticeSeen_(u.id);
+    if (nl.length && seen !== nl[0].key) { const i = nl.findIndex(n => n.key === seen); out.notice = Object.assign({}, nl[0], { more: (i < 0 ? nl.length : i) - 1 }); }
     return out;
   },
   predict(r) {
