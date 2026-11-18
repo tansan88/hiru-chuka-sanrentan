@@ -36,6 +36,7 @@ ok(r.notice && r.notice.key === key, 'まだ読んでいない最新の1件を�
 ok(call('noticeRead', { token: a, key }).ok, '既読にできる');
 ok(!call('state', { token: a }).notice, '読んだら出さない');
 ok(call('state', { token: b }).notice && call('state', { token: b }).notice.key === key, 'ほかの人には出る');
+ok(call('state', { token: b }).notice.more === 1, '一度も見ていない人には、ほかの未読の数（1件）', call('state', { token: b }).notice);
 ok(SS.getSheetByName('お知らせ既読').data.filter(x => x[0] !== '参加者ID' && x[0] !== '').length === 1, '既読は1人1行');
 call('noticeRead', { token: a, key });
 ok(SS.getSheetByName('お知らせ既読').data.filter(x => x[0] !== '参加者ID' && x[0] !== '').length === 1, '同じ人はふえない');
@@ -47,5 +48,7 @@ ok(!call('state', { token: a }).notice, '並べ替えても既読のまま');
 ns.appendRow([day(0), 'お知らせ掲示板ができました', '', 'アップデート']);
 r = call('state', { token: a });
 ok(r.notice && r.notice.title === 'お知らせ掲示板ができました' && r.notice.kind === 'アップデート', '新しいものを足すとまた出る（種類つき）', r.notice);
+ok(r.notice.more === 0, '最後に見たもののすぐ次なら、ほかの未読は0件', r.notice);
+ok(call('state', { token: b }).notice.more === 2, '一度も見ていない人は、ほかの未読が2件', call('state', { token: b }).notice);
 ok(call('notices', { token: b }).list.find(n => n.title === '通知が使えるようになりました').kind === '', '種類が空なら空', null);
 console.log(`PASS ${pass} FAIL ${fail}`);
