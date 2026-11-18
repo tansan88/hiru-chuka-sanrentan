@@ -623,7 +623,7 @@ const AI_MODELS = [
 const AI_EFFORTS = [
   { id: 'low', name: '低', desc: '直近4週だけ。買い目1点', key: '', mul: 1, weeks: 4, buys: 1, lines: 2 },
   { id: 'mid', name: '中', desc: 'これまでの週を全部。買い目3点', key: 'AI予想のエフォート倍率（中）', mul: 2, weeks: 0, buys: 3, lines: 4 },
-  { id: 'high', name: '高', desc: '全部の週を200通りに入れ替えて読み直し、自信度も出す。買い目5点', key: 'AI予想のエフォート倍率（高）', mul: 3, weeks: 0, buys: 5, lines: 99 },
+  { id: 'high', name: '高', desc: '全部の週を200通りに入れ替えて読み直し、その平均で予想する（ぶれにくい）。自信度も出す。買い目5点', key: 'AI予想のエフォート倍率（高）', mul: 3, weeks: 0, buys: 5, lines: 99 },
 ];
 const AI_BANDS = ['本命（1・2番人気）', '中穴（3〜5番人気）', '大穴（6番人気から）'];
 // 無料期間（設定の日付の終わりまで）。期間中なら終わりの日付、そうでなければ ''
@@ -749,6 +749,20 @@ function aiPredict_(db, w, modelId, effortId) {
   if (!cur.length) fail_('今週の出馬表がまだありません');
   const weeks = aiSamples_(db, w, E);
   const M = aiModel_(weeks, cur, lv, w.担当ホストID);
+  // エフォート高：週を入れ替えて200回読み直し、その平均で予想する（たまたまの偏りに振り回されにくくする）
+  // 200回＝平均のぶれが十分小さくなり、1年分のデータでも数秒で終わる回数
+  const BOOT = 200, bootTop = [];
+  if (E.id === 'high' && weeks.length) {
+    const rnd = aiRng_(w.週ID + modelId), sum = {};
+    DAYS.forEach(d => sum[d] = cur.map(() => 0));
+    for (let t = 0; t < BOOT; t++) {
+      const bs = weeks.map(() => weeks[Math.floor(rnd() * weeks.length)]);
+      const m2 = aiModel_(bs, cur, lv, w.担当ホストID), top = {};
+      DAYS.forEach(d => { let bi = 0; m2.p[d].forEach((x, i) => { sum[d][i] += x; if (x > m2.p[d][bi]) bi = i; }); top[d] = cur[bi].waku; });
+      bootTop.push(top);
+    }
+    DAYS.forEach(d => M.p[d] = sum[d].map(x => x / BOOT));
+  }
   const pct = x => Math.round(x * 1000) / 10;
   const r1 = x => Math.round(x * 10) / 10;
   // 曜日ごとの印：◎本命・○対抗・▲単穴（Opus の▲は、残りから妙味がいちばんあるもの）
@@ -763,18 +777,12 @@ function aiPredict_(db, w, modelId, effortId) {
   });
   const combos = aiCombos_(cur, M.p, M.rep, lv >= 2);
   const buys = combos.slice(0, E.buys).map(x => ({ picks: x.i.map(i => cur[i].waku), names: x.i.map(i => cur[i].name), p: Math.round(x.pr * 10000) / 100, mul: r1(x.mul) }));
-  // 自信度（エフォート高だけ）：週を入れ替えて読み直しても◎が変わらない割合
+  // 自信度（エフォート高だけ）：読み直した200回のうち、◎と同じものを1位にした割合
   let conf = null;
-  if (E.id === 'high' && weeks.length) {
-    const rnd = aiRng_(w.週ID + modelId), top = {};
-    DAYS.forEach(d => top[d] = days[d][0].waku);
+  if (bootTop.length) {
     let keep = 0;
-    for (let t = 0; t < 200; t++) {
-      const bs = weeks.map(() => weeks[Math.floor(rnd() * weeks.length)]);
-      const m2 = aiModel_(bs, cur, lv, w.担当ホストID);
-      DAYS.forEach(d => { let bi = 0; m2.p[d].forEach((x, i) => { if (x > m2.p[d][bi]) bi = i; }); if (cur[bi].waku === top[d]) keep++; });
-    }
-    const k = keep / 600;
+    bootTop.forEach(top => DAYS.forEach(d => { if (top[d] === days[d][0].waku) keep++; }));
+    const k = keep / (bootTop.length * DAYS.length);
     conf = { pct: Math.round(k * 100), stars: k >= 0.8 ? 3 : k >= 0.55 ? 2 : 1 };
   }
   // 考えた過程（エフォートが高いほど長く見せる）
@@ -804,7 +812,7 @@ function aiPredict_(db, w, modelId, effortId) {
     const a = DAYS.map(d => days[d][2]).filter(Boolean).sort((x, y) => y.p * y.odds - x.p * x.odds)[0];
     if (a) think.push('▲の「' + a.name + '」はいまの倍率' + r1(a.odds) + '倍。当たる見込み' + a.p + '%の割に配当がよく、妙味があります');
   }
-  if (conf) think.push('過去の週を200通りに入れ替えて読み直すと、◎は' + conf.pct + '%の割合で変わりませんでした');
+  if (conf) think.push('過去の週を200通りに入れ替えて読み直し、その平均で予想しました。◎は200通りのうち' + conf.pct + '%で1位でした');
   const lim = Math.max(1, E.lines);
   const body = think.slice(0, lim);
   body.push('買い目は' + (lv >= 2 ? '当たりやすさと配当の釣り合い' : '当たりやすさ') + 'で' + buys.length + '点に絞りました');
