@@ -643,8 +643,9 @@
   // 開いたときの読み込みなど、利用者の操作でないときは黙って開き直す。操作の途中なら、開き直したあとに一言出す
   // 30秒以内に2回目になったら（古いファイルが残っているなど）、開き直しが続かないよう案内を出して止める
   const RELOAD_QUIET = ['state', 'hostState', 'history', 'week', 'postMenus', 'notices', 'pushKey'];
+  function saveDraft() { try { const v = S.data && S.data.current; if (v) sessionStorage.setItem(store.key('hc_draft'), JSON.stringify({ weekId: v.weekId, picks: S.picks, bet: S.bet })); } catch (e) {} }
   function showReload(action) {
-    try { const v = S.data && S.data.current; if (v) sessionStorage.setItem(store.key('hc_draft'), JSON.stringify({ weekId: v.weekId, picks: S.picks, bet: S.bet })); } catch (e) {}
+    saveDraft();
     let last = 0;
     try { last = Number(sessionStorage.getItem('hc_reload_at') || 0); } catch (e) {}
     if (Date.now() - last > 30000) {
@@ -1333,10 +1334,34 @@
   // ---------- 起動 ----------
   render();
   try { if (sessionStorage.getItem('hc_reload_msg')) { sessionStorage.removeItem('hc_reload_msg'); setTimeout(() => toast('アプリが新しくなりました。直前の操作をもう一度お願いします'), 600); } } catch (e) {}
+  // 画面のファイルが新しくなっていたら、自動で開き直す
+  // 公開のたびに build.json（見えない版の札）が置かれ、index.html の <meta name="build"> と見比べる。
+  // 開いたとき・アプリに戻ってきたときに確かめる（1分に1回まで）。入力や窓を開いている途中なら、次に戻ってきたときに回す。
+  // 開き直すときは URL に ?b=新しい札 を付けて、iPhone が古いページを使い回さないようにする（開いたあと URL からは消す）
+  const BUILD = (document.querySelector('meta[name="build"]') || {}).content || '';
+  try { const u = new URL(location.href); if (u.searchParams.has('b')) { u.searchParams.delete('b'); history.replaceState(null, '', u.pathname + u.search + u.hash); } } catch (e) {}
+  let buildAt = 0;
+  async function checkBuild() {
+    if (!BUILD || Date.now() - buildAt < 60000) return;
+    buildAt = Date.now();
+    let b = '';
+    try { const r = await fetch('build.json?t=' + Date.now(), { cache: 'no-store' }); if (r.ok) b = (await r.json()).b || ''; } catch (e) { return; }
+    if (!b || b === BUILD) return;
+    // 同じ札へ30秒以内に開き直したのにまだ古い（古いファイルが残っている）なら、くり返さない
+    try { const t = JSON.parse(sessionStorage.getItem('hc_build_reload') || 'null'); if (t && t.b === b && Date.now() - t.at < 30000) return; } catch (e) {}
+    const busy = S.editing || $layer.innerHTML || (document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName));
+    if (busy) { buildAt = 0; return; }
+    saveDraft();
+    try { sessionStorage.setItem('hc_build_reload', JSON.stringify({ b, at: Date.now() })); } catch (e) {}
+    const u = new URL(location.href); u.searchParams.set('b', b);
+    location.replace(u.pathname + u.search + u.hash);
+  }
+  setTimeout(checkBuild, 1500);
   // しばらく閉じていたアプリに戻ってきたら、読み直す（画面が古ければここで自動で開き直る）
   let hiddenAt = 0;
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { hiddenAt = Date.now(); return; }
+    checkBuild();
     if (hiddenAt && Date.now() - hiddenAt > 5 * 60000 && S.token && S.data && !POST_MODE && !S.editing && !S.screen && !$layer.innerHTML) refresh({ loading: false, quiet: true }).catch(() => {});
     hiddenAt = 0;
   });

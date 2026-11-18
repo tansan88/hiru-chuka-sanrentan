@@ -46,7 +46,17 @@ jobs:
             cp $src/index.html $src/style.css $src/app.js $src/share.js $src/wok.js $src/config.js "$dst/"
             [ -f $src/sw.js ] && cp $src/sw.js "$dst/"
             cp -r $src/assets "$dst/"
+            # 版の札：画面に見えないファイル build.json に、画面のファイルの中身から作った番号を書く（中身が変わったときだけ番号が変わる）。
+            # index.html にも同じ番号を入れ、読み込むファイルに ?v=番号 を付ける（iPhone が古いファイルを使い回さないように）。
+            # 画面は開いたとき・戻ってきたときに build.json と見比べ、違えば自動で開き直す
+            b=$(cat $src/index.html $src/style.css $src/app.js $src/share.js $src/wok.js $src/config.js | sha256sum | cut -c1-10)
+            echo "{\"b\":\"$b\"}" > "$dst/build.json"
+            sed -i -e "s#src=\"\(config\|wok\|share\|app\)\.js\"#src=\"\1.js?v=$b\"#g" \
+                   -e "s#href=\"style\.css\"#href=\"style.css?v=$b\"#" \
+                   -e "s#<head>#<head>\n<meta name=\"build\" content=\"$b\">#" "$dst/index.html"
           done
+          cat _site/build.json _site/test/build.json
+          grep -n 'build\|?v=' _site/index.html
           touch _site/.nojekyll
           ls -R _site | head -40
       - uses: actions/configure-pages@v5
