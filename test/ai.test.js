@@ -118,13 +118,13 @@ try {
   r = call('postLog', { name: '天津飯' });
   ok(r.ok && r.saved, 'ログインなしでも記録できる', r);
   let mr = sh('食事の記録').data;
-  ok(mr.length === 2 && mr[1][5] === hostId && mr[1][7] === '担当ホストとみなす' && mr[1][3] === 5 && mr[1][2] === wk, 'ログインなしは今週の担当ホストの記録になり、枠も入る', mr[1]);
+  ok(mr.length === 2 && mr[1][5] === '' && mr[1][7] === '不明（ログインなし）' && mr[1][3] === 5 && mr[1][2] === wk, 'ログインなしは誰か不明として記録し、枠と週は入る', mr[1]);
   r = call('postLog', { token: g, name: '謎の麺' });
   mr = sh('食事の記録').data;
   ok(r.ok && mr[2][6] === 'たろう' && mr[2][3] === '', 'ログインしていればその人。メニューにない品は枠なし', mr[2]);
   ok(!call('postLog', { name: '  ' }).ok, '空のメニュー名は断る');
   // 今週の月曜に麻婆豆腐を食べた → Wontonnet の考えた過程に出る
-  sh('食事の記録').data.push(['2026-11-09', '月', wk, 1, '麻婆豆腐', hostId, 'てんちょう', '担当ホストとみなす', new Date()]);
+  sh('食事の記録').data.push(['2026-11-09', '月', wk, 1, '麻婆豆腐', hostId, 'てんちょう', 'ログインした人', new Date()]);
   setS('AI予想の無料期間（この日まで）', '2099-12-31');
   r = call('aiBuy', { token: g, weekId: wk, model: 'sonnet', effort: 'high' });
   ok(r.ok && r.item.result.think.some(t => /月曜は「麻婆豆腐」/.test(t)), '月曜に食べたものを読む', r.item && r.item.result.think);

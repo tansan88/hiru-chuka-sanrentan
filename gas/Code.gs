@@ -522,7 +522,7 @@ const API = {
     return { menus: db.menus.filter(m => m.週ID === w.週ID && String(m.品名) !== OTHER_NAME).sort((a, b) => Number(a.枠) - Number(b.枠)).map(m => ({ waku: Number(m.枠), name: String(m.品名) })) };
   },
   // 投稿をつくる：送ったメニューを「食事の記録」に残す（ゲームの配当には関係しない。AI予想の手がかりにする）
-  // ログインしていればその人、していなければ今週の担当ホストが食べたものとみなす
+  // 誰が食べたかは、ログインしている人だけ記録する（ログインなしは「不明」。AI予想はホストごとの読みに使わない）
   postLog(r) {
     const name = String(r.name || '').trim().slice(0, 40);
     if (!name) fail_('メニュー名を入れてください');
@@ -532,8 +532,8 @@ const API = {
     const w = db.weeks.find(x => x.週ID === wid && x.状態 !== '下書き') || currentWeek_(db);
     const now = new Date();
     const m = w ? db.menus.find(x => x.週ID === w.週ID && String(x.品名).trim() === name) : null;
-    const uid = u ? u.id : (w ? w.担当ホストID : ''), nick = u ? u.nick : (w ? w.担当ホスト : '');
-    sheet_('食事の記録').appendRow([txt_(Utilities.formatDate(now, 'Asia/Tokyo', 'yyyy-MM-dd')), '日月火水木金土'.charAt(now.getDay()), txt_(w ? w.週ID : wid), m ? Number(m.枠) : '', txt_(name), uid, txt_(nick || ''), u ? 'ログインした人' : '担当ホストとみなす', now]);
+    const uid = u ? u.id : '', nick = u ? u.nick : '';
+    sheet_('食事の記録').appendRow([txt_(Utilities.formatDate(now, 'Asia/Tokyo', 'yyyy-MM-dd')), '日月火水木金土'.charAt(now.getDay()), txt_(w ? w.週ID : wid), m ? Number(m.枠) : '', txt_(name), uid, txt_(nick || ''), u ? 'ログインした人' : '不明（ログインなし）', now]);
     return { saved: true };
   },
   readMenu(r) {
