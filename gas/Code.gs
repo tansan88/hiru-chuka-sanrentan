@@ -25,9 +25,10 @@ const SHEETS = {
   通知: ['登録日時', '参加者ID', 'ニックネーム', '送り先', 'p256dh', 'auth'],
   お知らせ: ['日付', '見出し', '本文', '種類'],
   お知らせ既読: ['参加者ID', 'ニックネーム', '既読', '日時'],
+  AI予想: ['週ID', '参加者ID', 'ニックネーム', 'モデル', 'エフォート', 'pt', '日時', '中身'],
 };
 // あとから増えたシート（無ければ自動で作る）
-const AUTO_SHEETS = ['補充', 'レビュー', 'クイズ', 'エラー', '問い合わせ', '通知', 'お知らせ', 'お知らせ既読'];
+const AUTO_SHEETS = ['補充', 'レビュー', 'クイズ', 'エラー', '問い合わせ', '通知', 'お知らせ', 'お知らせ既読', 'AI予想'];
 const CONTACT_KINDS = ['不具合', '質問', '要望', 'その他'];
 const DAYS = ['火', '水', '木'];
 const DEFAULT_SETTINGS = [
@@ -47,6 +48,11 @@ const DEFAULT_SETTINGS = [
   ['エラー通知先', '', 'エラーを知らせるメールの宛先。空ならこのスクリプトを動かしている人（オーナー）'],
   ['いつものメニュー1', '', '新しい週の出馬表の6番に自動で入るメニュー（ホストタブからも変えられる）'],
   ['いつものメニュー2', '', '新しい週の出馬表の7番に自動で入るメニュー'],
+  ['AI予想の値段（Haiku）', 200, 'AI予想のエフォート「低」の値段。中・高はこれに倍率をかける'],
+  ['AI予想の値段（Sonnet）', 500, '同上'],
+  ['AI予想の値段（Opus）', 1000, '同上'],
+  ['AI予想のエフォート倍率（中）', 2, 'エフォート「中」は「低」の何倍の値段か'],
+  ['AI予想のエフォート倍率（高）', 3, 'エフォート「高」は「低」の何倍の値段か'],
 ];
 // 出馬表の「その他」：結果を登録するときに、実際に食べた料理名を入れる
 const OTHER_NAME = 'その他';
@@ -134,6 +140,41 @@ function fail_(msg) { throw new UserError(msg); }
 function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 
 const API = {
+  // --- AI予想（ptで買う予想屋） ---
+  // 今週の分：モデル・エフォート・値段と、自分が買ったもの
+  aiList(r) {
+    const u = auth_(r);
+    try { ensureSettings_(); } catch (e) {}
+    const db = load_();
+    const w = (r.weekId && db.weeks.find(x => x.週ID === r.weekId)) || currentWeek_(db);
+    const out = { models: AI_MODELS.map(m => ({ id: m.id, name: m.name, desc: m.desc })), efforts: AI_EFFORTS.map(e => ({ id: e.id, name: e.name, desc: e.desc })), prices: aiPrices_(), balance: balance_(u, db), items: [] };
+    if (!w) { out.reason = 'いまは出馬表が出ていません'; return out; }
+    out.weekId = w.週ID;
+    out.items = aiItems_(db, w.週ID, u.id);
+    const why = aiBlocked_(w, u);
+    if (why) out.reason = why; else out.canBuy = true;
+    return out;
+  },
+  aiBuy(r) {
+    const u = auth_(r);
+    const db = load_();
+    const w = db.weeks.find(x => x.週ID === r.weekId);
+    if (!w) fail_('出馬表が見つかりません');
+    const why = aiBlocked_(w, u); if (why) fail_(why);
+    const model = AI_MODELS.find(m => m.id === r.model), effort = AI_EFFORTS.find(e => e.id === r.effort);
+    if (!model || !effort) fail_('モデルとエフォートを選んでください');
+    // 同じ組み合わせは、もう一度買わずに前の予想を返す（送り直しても2回払いにならない）
+    const same = aiItems_(db, w.週ID, u.id).find(x => x.model === model.id && x.effort === effort.id);
+    if (same) return { item: same, balance: balance_(u, db), again: true };
+    const price = aiPrices_()[model.id][effort.id];
+    const bal = balance_(u, db);
+    if (price > bal) fail_('持ち点が足りません（' + model.name + '・エフォート' + effort.name + 'は ' + price.toLocaleString() + 'pt）');
+    const res = aiPredict_(db, w, model.id, effort.id);
+    const at = new Date();
+    sheet_('AI予想').appendRow([txt_(w.週ID), u.id, txt_(u.nick), model.id, effort.id, price, at, txt_(JSON.stringify(res))]);
+    log_(u.id, u.nick, 'AI予想', model.name + '・' + effort.name + ' / ' + price + 'pt');
+    return { item: { model: model.id, effort: effort.id, pt: price, at: at.toISOString(), result: res }, balance: bal - price };
+  },
   // --- お知らせ ---
   notices(r) { auth_(r); return { list: notices_().slice(0, 30) }; },
   noticeRead(r) {
@@ -570,6 +611,191 @@ const API = {
   },
 };
 
+// ===== AI予想（ptで買う予想屋） =====
+// 中身は統計（外のAIは呼ばない）。使うのは公開した出馬表・いまの倍率・確定した週の結果だけ（ホストだけが知る情報は混ぜない）
+// モデル＝何を見て読むか、エフォート＝どこまで深く読むか
+const AI_MODELS = [
+  { id: 'haiku', name: 'Haiku', desc: 'すばやく軽く。人気順の当たりやすさだけで読む', key: 'AI予想の値段（Haiku）', price: 200 },
+  { id: 'sonnet', name: 'Sonnet', desc: 'バランス型。料理ごとの出やすさ・曜日の傾向・同じ料理の続きやすさも読む', key: 'AI予想の値段（Sonnet）', price: 500 },
+  { id: 'opus', name: 'Opus', desc: 'いちばん深い。担当ホストの週の傾向と、倍率の妙味（当たりやすさの割に配当がよいか）まで読む', key: 'AI予想の値段（Opus）', price: 1000 },
+];
+const AI_EFFORTS = [
+  { id: 'low', name: '低', desc: '直近4週だけ。買い目1点', key: '', mul: 1, weeks: 4, buys: 1, lines: 2 },
+  { id: 'mid', name: '中', desc: 'これまでの週を全部。買い目3点', key: 'AI予想のエフォート倍率（中）', mul: 2, weeks: 0, buys: 3, lines: 4 },
+  { id: 'high', name: '高', desc: '全部の週を200通りに入れ替えて読み直し、自信度も出す。買い目5点', key: 'AI予想のエフォート倍率（高）', mul: 3, weeks: 0, buys: 5, lines: 99 },
+];
+const AI_BANDS = ['本命（1・2番人気）', '中穴（3〜5番人気）', '大穴（6番人気から）'];
+function aiPrices_() {
+  const out = {};
+  AI_MODELS.forEach(m => {
+    const b = Number(getSetting_(m.key)), base = b >= 0 && getSetting_(m.key) !== '' ? b : m.price;
+    out[m.id] = {};
+    AI_EFFORTS.forEach(e => {
+      const k = e.key ? Number(getSetting_(e.key)) : 1, mul = e.key && !(k > 0) ? e.mul : k;
+      out[m.id][e.id] = Math.max(0, Math.ceil(base * mul / 100) * 100);
+    });
+  });
+  return out;
+}
+function aiBlocked_(w, u) {
+  if (w.状態 !== '受付中') return '受付中の週だけ、AI予想を買えます';
+  if (new Date() >= new Date(w.締切)) return '締切を過ぎたので、AI予想は買えません';
+  if (w.担当ホストID === u.id) return '担当の週は、AI予想を使えません';
+  return '';
+}
+function aiItems_(db, weekId, uid) {
+  return (db.ai || []).filter(a => a.週ID === weekId && a.参加者ID === uid).sort((a, b) => new Date(a.日時) - new Date(b.日時)).map(a => {
+    let res = null; try { res = JSON.parse(String(a.中身).replace(/^'/, '')); } catch (e) {}
+    return { model: String(a.モデル), effort: String(a.エフォート), pt: Number(a.pt), at: toIso_(a.日時), result: res };
+  }).filter(x => x.result);
+}
+function aiBand_(pop) { return pop <= 2 ? 0 : pop <= 5 ? 1 : 2; }
+// 決まった種から並ぶ乱数（同じ週・同じ組み合わせなら同じ結果になる）
+function aiRng_(seed) {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return () => { h |= 0; h = h + 0x6D2B79F5 | 0; let t = Math.imul(h ^ h >>> 15, 1 | h); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+// 過去の週を「日ごとの見本」にする
+function aiSamples_(db, w, effort) {
+  let past = db.weeks.filter(x => x.状態 === '確定' && String(x.週ID) < String(w.週ID)).sort(byWeekDesc_);
+  if (effort.weeks) past = past.slice(0, effort.weeks);
+  const weeks = [];
+  past.forEach(pw => {
+    const menus = db.menus.filter(m => m.週ID === pw.週ID).map(m => ({ waku: Number(m.枠), name: String(m.品名).trim(), pop: Number(m.人気) || 99 }));
+    if (!menus.length) return;
+    const days = [];
+    DAYS.forEach(d => {
+      const rr = db.results.find(x => x.週ID === pw.週ID && x.曜日 === d);
+      if (rr && Number(rr.枠) > 0) days.push({ day: d, hit: Number(rr.枠) });
+    });
+    if (days.length) weeks.push({ id: pw.週ID, host: pw.担当ホストID, menus, days });
+  });
+  return weeks;
+}
+// 見本から、今週の各品が各曜日に出る見込みを出す
+// 土台は基本の倍率（人気順）。そこに「実際は見込みの何倍出たか」を、データが少ないほど1に近づけてかけていく
+function aiModel_(weeks, cur, lv, hostId) {
+  const inv = pop => 1 / oddsFor_(pop);
+  const prior = (menus, pop) => inv(pop) / menus.reduce((s, m) => s + inv(m.pop), 0);
+  const fac = (h, e, a, lo, hi) => Math.min(hi, Math.max(lo, (h + a) / (e + a)));
+  const rank = {}, dish = {}, dayband = {}, hostband = {};
+  let nDays = 0, hostDays = 0;
+  weeks.forEach(wk => wk.days.forEach(dd => {
+    nDays++;
+    const isHost = hostId && wk.host === hostId; if (isHost) hostDays++;
+    wk.menus.forEach(m => {
+      const e = prior(wk.menus, m.pop), hit = m.waku === dd.hit ? 1 : 0, b = aiBand_(m.pop);
+      const add = (o, k) => { const x = o[k] || (o[k] = { h: 0, e: 0, n: 0 }); x.h += hit; x.e += e; x.n++; };
+      add(rank, m.pop); add(dish, m.name); add(dayband, dd.day + b);
+      if (isHost) add(hostband, b);
+    });
+  }));
+  // 同じ週に同じ料理が続いた回数（見込みと比べる）
+  let repObs = 0, repExp = 0;
+  if (lv >= 1) weeks.forEach(wk => {
+    for (let i = 0; i < wk.days.length; i++) for (let j = i + 1; j < wk.days.length; j++) {
+      if (wk.days[i].hit === wk.days[j].hit) repObs++;
+      repExp += wk.menus.reduce((s, m) => s + Math.pow(prior(wk.menus, m.pop), 2), 0);
+    }
+  });
+  const rep = lv >= 1 ? fac(repObs, repExp, 0.5, 0.15, 1.5) : 1;
+  const F = {
+    rank: pop => { const o = rank[pop]; return o ? fac(o.h, o.e, 3, 0.3, 3) : 1; },
+    dish: name => { const o = dish[name]; return lv >= 1 && o ? fac(o.h, o.e, 2, 0.4, 2.5) : 1; },
+    day: (d, b) => { const o = dayband[d + b]; return lv >= 1 && o ? fac(o.h, o.e, 3, 0.5, 2) : 1; },
+    host: b => { const o = hostband[b]; return lv >= 2 && hostDays >= 3 && o ? fac(o.h, o.e, 3, 0.5, 2) : 1; },
+  };
+  const p = {};
+  DAYS.forEach(d => {
+    const raw = cur.map(m => prior(cur, m.pop) * F.rank(m.pop) * F.dish(m.name) * F.day(d, aiBand_(m.pop)) * F.host(aiBand_(m.pop)));
+    const sum = raw.reduce((a, b) => a + b, 0) || 1;
+    p[d] = raw.map(x => x / sum);
+  });
+  return { p, rep, F, stat: { rank, dish, dayband, hostband, nDays, hostDays, repObs, repExp } };
+}
+// 3連単の組み合わせ（同じ料理が続く組み合わせは、続きやすさでかけ直す）
+function aiCombos_(cur, p, rep, value) {
+  const n = cur.length, out = [];
+  let tot = 0;
+  for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) for (let c = 0; c < n; c++) {
+    const same = (a === b) + (b === c) + (a === c);
+    const pr = p.火[a] * p.水[b] * p.木[c] * Math.pow(rep, same ? same - (same === 3 ? 1 : 0) : 0);
+    tot += pr; out.push({ i: [a, b, c], pr });
+  }
+  out.forEach(x => { x.pr /= tot || 1; x.mul = cur[x.i[0]].odds * cur[x.i[1]].odds * cur[x.i[2]].odds; x.score = value ? x.pr * Math.sqrt(x.mul) : x.pr; });
+  return out.sort((x, y) => y.score - x.score || y.pr - x.pr);
+}
+function aiPredict_(db, w, modelId, effortId) {
+  const lv = AI_MODELS.findIndex(m => m.id === modelId), E = AI_EFFORTS.find(e => e.id === effortId);
+  const om = oddsMap_(db, w);
+  const cur = db.menus.filter(m => m.週ID === w.週ID).sort((a, b) => Number(a.枠) - Number(b.枠))
+    .map(m => ({ waku: Number(m.枠), name: String(m.品名).trim(), pop: Number(m.人気) || 99, odds: Number(om[Number(m.枠)]) || Number(m.オッズ) || 1 }));
+  if (!cur.length) fail_('今週の出馬表がまだありません');
+  const weeks = aiSamples_(db, w, E);
+  const M = aiModel_(weeks, cur, lv, w.担当ホストID);
+  const pct = x => Math.round(x * 1000) / 10;
+  const r1 = x => Math.round(x * 10) / 10;
+  // 曜日ごとの印：◎本命・○対抗・▲単穴（Opus の▲は、残りから妙味がいちばんあるもの）
+  const days = {};
+  DAYS.forEach(d => {
+    const idx = cur.map((_, i) => i).sort((a, b) => M.p[d][b] - M.p[d][a]);
+    const picks = [idx[0], idx[1]];
+    const rest = idx.slice(2);
+    const ana = lv >= 2 ? rest.slice().sort((a, b) => M.p[d][b] * cur[b].odds - M.p[d][a] * cur[a].odds)[0] : rest[0];
+    if (ana !== undefined) picks.push(ana);
+    days[d] = picks.map((i, k) => ({ mark: ['◎', '○', '▲'][k], waku: cur[i].waku, name: cur[i].name, p: pct(M.p[d][i]), odds: cur[i].odds }));
+  });
+  const combos = aiCombos_(cur, M.p, M.rep, lv >= 2);
+  const buys = combos.slice(0, E.buys).map(x => ({ picks: x.i.map(i => cur[i].waku), names: x.i.map(i => cur[i].name), p: Math.round(x.pr * 10000) / 100, mul: r1(x.mul) }));
+  // 自信度（エフォート高だけ）：週を入れ替えて読み直しても◎が変わらない割合
+  let conf = null;
+  if (E.id === 'high' && weeks.length) {
+    const rnd = aiRng_(w.週ID + modelId), top = {};
+    DAYS.forEach(d => top[d] = days[d][0].waku);
+    let keep = 0;
+    for (let t = 0; t < 200; t++) {
+      const bs = weeks.map(() => weeks[Math.floor(rnd() * weeks.length)]);
+      const m2 = aiModel_(bs, cur, lv, w.担当ホストID);
+      DAYS.forEach(d => { let bi = 0; m2.p[d].forEach((x, i) => { if (x > m2.p[d][bi]) bi = i; }); if (cur[bi].waku === top[d]) keep++; });
+    }
+    const k = keep / 600;
+    conf = { pct: Math.round(k * 100), stars: k >= 0.8 ? 3 : k >= 0.55 ? 2 : 1 };
+  }
+  // 考えた過程（エフォートが高いほど長く見せる）
+  const S = M.stat, think = [];
+  if (!S.nDays) think.push('まだ確定した週がありません。基本の倍率（人気順）だけで読みます');
+  else {
+    think.push('過去' + weeks.length + '週・' + S.nDays + '日分の結果を読みました' + (E.weeks ? '（直近' + E.weeks + '週まで）' : ''));
+    const rs = [1, 2].filter(k => S.rank[k]).map(k => k + '番人気は' + S.rank[k].n + '日中' + S.rank[k].h + '回');
+    if (rs.length) think.push(rs.join('、') + '当たっています' + (S.nDays < 9 ? '。まだデータが少ないので、ほとんど人気順で読みます' : ''));
+  }
+  if (lv >= 1 && S.nDays) {
+    let best = null;
+    cur.forEach(m => { const o = S.dish[m.name]; if (o && o.n >= 2) { const f = M.F.dish(m.name); if (!best || Math.abs(Math.log(f)) > Math.abs(Math.log(best.f))) best = { m, o, f }; } });
+    if (best && Math.abs(best.f - 1) >= 0.1) think.push('「' + best.m.name + '」は出馬表に' + best.o.n + '日出て' + best.o.h + '回食べられています（人気から見た見込みの' + r1(best.f) + '倍）');
+    else think.push('今週の料理は、過去の出方に大きな偏りがありません');
+    let bd = null;
+    DAYS.forEach(d => [0, 1, 2].forEach(b => { const o = S.dayband[d + b]; if (o) { const f = M.F.day(d, b); if (!bd || Math.abs(Math.log(f)) > Math.abs(Math.log(bd.f))) bd = { d, b, o, f }; } }));
+    if (bd && Math.abs(bd.f - 1) >= 0.1) think.push(bd.d + '曜は' + AI_BANDS[bd.b] + 'が' + (bd.f > 1 ? '出やすい' : '出にくい') + '（' + bd.o.h + '回／見込み' + r1(bd.o.e) + '回）');
+    think.push('同じ週に同じ料理が2日出たのは' + S.repObs + '回。同じ料理が続く買い目は' + (M.rep < 0.9 ? '割り引いて' : M.rep > 1.1 ? '少し重く' : 'そのまま') + '読みます');
+  }
+  if (lv >= 2) {
+    if (S.hostDays >= 3) {
+      let hb = null;
+      [0, 1, 2].forEach(b => { const o = S.hostband[b]; if (o) { const f = M.F.host(b); if (!hb || Math.abs(Math.log(f)) > Math.abs(Math.log(hb.f))) hb = { b, o, f }; } });
+      think.push('今週の担当ホストの週は過去' + S.hostDays + '日。' + (hb && Math.abs(hb.f - 1) >= 0.1 ? AI_BANDS[hb.b] + 'が' + (hb.f > 1 ? '多め' : '少なめ') + 'に出ています' : '人気どおりに出ています'));
+    } else think.push('今週の担当ホストの週は、まだほとんどありません');
+    const a = DAYS.map(d => days[d][2]).filter(Boolean).sort((x, y) => y.p * y.odds - x.p * x.odds)[0];
+    if (a) think.push('▲の「' + a.name + '」はいまの倍率' + r1(a.odds) + '倍。当たる見込み' + a.p + '%の割に配当がよく、妙味があります');
+  }
+  if (conf) think.push('過去の週を200通りに入れ替えて読み直すと、◎は' + conf.pct + '%の割合で変わりませんでした');
+  const lim = Math.max(1, E.lines);
+  const body = think.slice(0, lim);
+  body.push('買い目は' + (lv >= 2 ? '当たりやすさと配当の釣り合い' : '当たりやすさ') + 'で' + buys.length + '点に絞りました');
+  return { v: 1, model: modelId, effort: effortId, days, buys, think: body, conf, data: { weeks: weeks.length, days: S.nDays } };
+}
+
 // ===== 画面に返す形 =====
 function weekView_(w, u, db, withSettle) {
   const menus = db.menus.filter(m => m.週ID === w.週ID).sort((a, b) => Number(a.枠) - Number(b.枠))
@@ -676,7 +902,8 @@ function balance_(u, db) {
   const add = Number(u.add) || 0;
   const spent = db.preds.filter(p => p.参加者ID === u.id).reduce((s, p) => s + Number(p.使うpt || 0), 0);
   const got = db.earn.filter(e => e.参加者ID === u.id).reduce((s, e) => s + Number(e.獲得計 || 0), 0);
-  return init + add - spent + got;
+  const ai = (db.ai || []).filter(a => a.参加者ID === u.id).reduce((s, a) => s + Number(a.pt || 0), 0); // AI予想に使ったpt
+  return init + add - spent + got - ai;
 }
 function currentWeek_(db) {
   return db.weeks.filter(w => w.状態 === '受付中').sort(byWeekDesc_)[0] || null;
@@ -818,7 +1045,7 @@ function resetCache_() { SS_ = null; SHEET_ = {}; ENV_ = null; SETTINGS_ = null;
 // よく使うシートを、Sheets API で1回の問い合わせでまとめて読んでおく（1枚ずつ読むと1枚0.2〜0.6秒かかる）
 // 使えないとき（Sheets API が無効など）は何もしない＝今までどおり1枚ずつ読む
 const PREFETCH_SHEETS = ['参加者', '週', 'メニュー', '結果', '予想', '獲得pt', '設定'];
-const PREFETCH_OPTIONAL_ = ['お知らせ', 'お知らせ既読'];
+const PREFETCH_OPTIONAL_ = ['お知らせ', 'お知らせ既読', 'AI予想'];
 const DATE_HEADS_ = ['締切', '公開日時', '確定日時', '日時', '登録日時', '日付'];
 function prefetch_() {
   const tp = Date.now();
@@ -894,7 +1121,7 @@ function rows_(name) {
   }).filter(o => o[head[0]] !== '');
 }
 function load_() {
-  return { weeks: rows_('週'), menus: rows_('メニュー'), results: rows_('結果'), preds: rows_('予想'), earn: rows_('獲得pt') };
+  return { weeks: rows_('週'), menus: rows_('メニュー'), results: rows_('結果'), preds: rows_('予想'), earn: rows_('獲得pt'), ai: rowsAuto_('AI予想') };
 }
 function readUsers_() {
   return rows_('参加者').map(o => ({ _row: o._row, id: o.ID, nick: String(o.ニックネーム), pass: o.パスワード, salt: o.ソルト, host: o.ホスト, add: o.補充pt, token: o.ログイン鍵 }));

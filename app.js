@@ -200,6 +200,7 @@
     $app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
     const m = $app.querySelector('[data-act="menu"]'); if (m) m.onclick = openMenu;
     $app.querySelectorAll('[data-act="refill"]').forEach(b => b.onclick = openRefill);
+    $app.querySelectorAll('[data-act="ai"]').forEach(b => b.onclick = openAI);
   }
   function switchTab(t) {
     S.tab = t; store.set('hc_tab', t); S.editing = false;
@@ -285,7 +286,7 @@
       } catch (e) {}
     }
     const rows = v.menus.map(m => `<div class="tr">${waku(m.waku)}${nameCell(m, true)}${oddsCell(m)}${DAYS.map(d => `<button class="dot ${S.picks[d] === m.waku ? 'on' : ''}" data-day="${d}" data-waku="${m.waku}" aria-pressed="${S.picks[d] === m.waku}" aria-label="${d} ${esc(m.name)}"></button>`).join('')}</div>`).join('');
-    return raceHead(v, '<span class="pill open">受付中</span>') + mumble(v) + oddsNote(v) +
+    return raceHead(v, '<span class="pill open">受付中</span>') + mumble(v) + aiEntry(v) + oddsNote(v) +
       `<div class="tbl">${tableHead(DAYS)}${rows}</div>
       <div class="dock" id="dock">
         <div class="l1"><span class="picks" id="dpicks"></span><span class="mul" id="dmul"></span></div>
@@ -320,7 +321,7 @@
     const rows = v.menus.map(m => `<div class="tr">${waku(m.waku)}${nameCell(m, DAYS.some(d => v.myPred.picks[d] === m.waku))}${oddsCell(m)}${DAYS.map(d => v.myPred.picks[d] === m.waku ? '<span class="mk hit" aria-label="予想"></span>' : '<span></span>').join('')}</div>`).join('');
     return raceHead(v, '<span class="pill open">受付中</span>') +
       `<div class="banner"><span class="ck">✓</span><div><b>へい、まいど！予想を受け付けました</b><small>${at.getMonth() + 1}/${at.getDate()}（${'日月火水木金土'[at.getDay()]}）${at.getHours()}:${String(at.getMinutes()).padStart(2, '0')}</small></div></div>` +
-      `<div style="margin-top:10px">${oddsNote(v)}</div><div class="tbl">${tableHead(DAYS)}${rows}</div>
+      aiEntry(v) + `<div style="margin-top:10px">${oddsNote(v)}</div><div class="tbl">${tableHead(DAYS)}${rows}</div>
       <div class="pad" style="margin-top:auto"><div class="card"><div class="hd"><span>あなたの予想</span><span>${r.mul.toFixed(1)}倍</span></div><div class="bd">
         <b style="font-size:15px">${names.map(esc).join(' → ')}</b>
         <div class="kv"><span>使うpt</span><b>${fmt(v.myPred.bet)} pt</b></div>
@@ -369,7 +370,7 @@
     }
     return raceHead(v, '<span class="pill run">開催中</span>') +
       `<div class="legend"><span><span class="mk wait"></span>予想</span><span><span class="mk hit">✓</span>当たり</span><span><span class="mk miss">${MISS_X}</span>はずれ</span><span><span class="bowl" style="width:20px;height:20px">${BOWL('#C8102E')}</span>食べたもの</span>${cancelled.length ? '<span><span class="mk cancel">−</span>中止</span>' : ''}</div>` +
-      `<div class="tbl"><div class="tr th"><span>枠</span><span>メニュー</span><span>オッズ</span>${heads.map(h => `<span>${h}</span>`).join('')}</div>${rows}</div>` + crowdView(v) + dock;
+      `<div class="tbl"><div class="tr th"><span>枠</span><span>メニュー</span><span>オッズ</span>${heads.map(h => `<span>${h}</span>`).join('')}</div>${rows}</div>` + crowdView(v) + aiEntry(v) + dock;
   }
   // 電光掲示板：3連単がどこまで来ているか（リーチ・あと2つ・あと3つ・終了・的中）
   function ledBoard(v, p, r, got, waitDays, alive) {
@@ -776,6 +777,120 @@
     };
   }
 
+  // ---------- AI予想（ptで買う予想屋） ----------
+  // モデル＝何を見て読むか、エフォート＝どこまで深く読むか。中身は統計（サーバーで計算）
+  const AI_WAIT = { low: 1400, mid: 2800, high: 4800 }; // 考え中を見せる最短の時間
+  const AI_STEPS = ['出馬表を読んでいます', '過去の結果を数えています', '曜日ごとの出方を見ています', '倍率と見比べています', '買い目を絞っています'];
+  function aiEntry(v) {
+    return `<button class="ai-entry" data-act="ai"><span class="ai-badge" aria-hidden="true">AI</span><span class="t"><b>AI予想</b><small>${v.closed ? '買った予想を見る' : 'モデルとエフォートを選んで、予想してもらう'}</small></span><span class="go" aria-hidden="true">›</span></button>`;
+  }
+  async function openAI() {
+    const v = S.data.current;
+    try {
+      const r = await api('aiList', { weekId: v ? v.weekId : '' });
+      const keep = S.ai || {};
+      S.ai = { info: r, model: keep.model || store.get('ai_model') || 'sonnet', effort: keep.effort || store.get('ai_effort') || 'mid', fresh: null, pend: null };
+      if (!r.models.some(m => m.id === S.ai.model)) S.ai.model = r.models[0].id;
+      if (!r.efforts.some(e => e.id === S.ai.effort)) S.ai.effort = r.efforts[0].id;
+      S.screen = 'ai'; render(); window.scrollTo(0, 0);
+    } catch (e) {}
+  }
+  function aiName(id) { const m = S.ai.info.models.find(x => x.id === id); return m ? m.name : id; }
+  function aiEff(id) { const e = S.ai.info.efforts.find(x => x.id === id); return e ? e.name : id; }
+  function aiDays(res) {
+    const head = `<div class="ai-tr ai-th"><span></span>${DAYS.map(d => `<span>${d}</span>`).join('')}</div>`;
+    const rows = [0, 1, 2].map(k => `<div class="ai-tr"><span class="mk-${k}">${['◎', '○', '▲'][k]}</span>${DAYS.map(d => { const x = res.days[d][k]; return x ? `<span class="c">${waku(x.waku)}<span class="n">${esc(x.name)}</span><small>${x.p}%</small></span>` : '<span></span>'; }).join('')}</div>`).join('');
+    return `<div class="ai-days">${head}${rows}</div>`;
+  }
+  function aiBuys(res) {
+    const can = S.ai.info.canBuy;
+    const rows = res.buys.map((b, i) => `<div class="ai-buy"><span class="no">${i + 1}</span><div class="b">${b.picks.map((w, j) => `<span class="ai-pk"><em>${DAYS[j]}</em>${waku(w)}<span>${esc(b.names[j])}</span></span>`).join('')}<small>当たる見込み ${b.p}%　・　${oddsTxt(b.mul)}倍</small></div>${can ? `<button class="btn gray ai-use" data-use="${b.picks.join(',')}">予想に入れる</button>` : ''}</div>`).join('');
+    return `<div class="ai-h">買い目（3連単）</div>${rows}`;
+  }
+  function aiItem(it, opt) {
+    opt = opt || {};
+    const res = it.result;
+    const stars = res.conf ? `<div class="ai-conf"><span>自信度</span><b>${'★'.repeat(res.conf.stars)}<i>${'★'.repeat(3 - res.conf.stars)}</i></b><small>読み直しても◎が変わらなかった割合 ${res.conf.pct}%</small></div>` : '';
+    const lines = res.think.map((t, i) => `<li${opt.reveal ? ` style="animation-delay:${i * 0.35}s"` : ''}>${esc(t)}</li>`).join('');
+    return `<article class="ai-item${opt.reveal ? ' reveal' : ''}" id="ai-${it.model}-${it.effort}">
+      <div class="ai-meta"><span class="ai-badge" aria-hidden="true">AI</span><b>${esc(aiName(it.model))}</b><span>エフォート ${esc(aiEff(it.effort))}</span><span class="pt">${fmt(it.pt)}pt</span></div>
+      <details class="ai-think"${opt.open ? ' open' : ''}><summary>考えた過程</summary><ol>${lines}</ol></details>
+      <div class="ai-ans"${opt.reveal ? ` style="animation-delay:${res.think.length * 0.35 + 0.2}s"` : ''}>${aiDays(res)}${aiBuys(res)}${stars}<p class="ai-foot">データから読んだ予想です。外れても恨みっこなし。</p></div>
+    </article>`;
+  }
+  function aiPending(p) {
+    return `<article class="ai-item"><div class="ai-meta"><span class="ai-badge" aria-hidden="true">AI</span><b>${esc(aiName(p.model))}</b><span>エフォート ${esc(aiEff(p.effort))}</span></div>
+      <div class="ai-wait"><span class="ai-dots" aria-hidden="true"><i></i><i></i><i></i></span><span id="aiStep">考え中…</span></div></article>`;
+  }
+  function renderAI() {
+    const A = S.ai, I = A.info;
+    const price = I.prices[A.model] && I.prices[A.model][A.effort];
+    const bought = I.items.find(x => x.model === A.model && x.effort === A.effort);
+    const items = I.items.map(it => aiItem(it, it === A.fresh ? { open: true, reveal: true } : {})).join('');
+    const intro = I.items.length || A.pend ? '' : `<div class="ai-intro">${chefImg('smile')}<div><b>今週の3連単を、データで読みます</b><span>下でモデルとエフォートを選んで送ってください。モデルが上のものほど多くのことを読み、エフォートが高いほどじっくり読みます。外れても恨みっこなし。</span><small>読むのは、公開した出馬表・いまの倍率・これまでの結果だけです</small></div></div>`;
+    const sendLbl = bought ? '見る' : `${fmt(price)}pt`;
+    const canSend = I.canBuy && !A.pend && (bought || price <= I.balance);
+    $app.innerHTML = `<header class="bar"><div style="display:flex;align-items:center;gap:10px"><button class="ibtn" id="back" aria-label="戻る" style="font-size:22px;padding-bottom:3px">‹</button><b class="sub-title">AI予想</b></div><span class="pts">持ち点<br><b>${fmt(I.balance)}</b> pt</span></header>
+      <div class="ai-list">${intro}${items}${A.pend ? aiPending(A.pend) : ''}</div>
+      <div class="ai-dock">${I.canBuy ? `<div class="ai-comp">
+        <div class="ai-prompt">今週の3連単を予想して</div>
+        <div class="ai-row"><button class="ai-pill" id="aiPick" aria-haspopup="dialog">${esc(aiName(A.model))}<span>エフォート ${esc(aiEff(A.effort))}</span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button>
+        <button class="ai-send" id="aiSend" ${canSend ? '' : 'disabled'} aria-label="${bought ? '買った予想を見る' : esc(sendLbl) + 'で予想してもらう'}"><span>${esc(sendLbl)}</span><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+        ${!bought && price > I.balance ? '<div class="ai-err">持ち点が足りません。モデルかエフォートを下げてください</div>' : ''}</div>` : `<div class="ai-closed">${esc(I.reason || 'いまはAI予想を買えません')}</div>`}</div>`;
+    document.getElementById('back').onclick = () => { S.screen = null; S.ai.fresh = null; render(); window.scrollTo(0, 0); };
+    const pk = document.getElementById('aiPick'); if (pk) pk.onclick = openAIPicker;
+    const sd = document.getElementById('aiSend'); if (sd) sd.onclick = () => bought ? aiScrollTo(bought) : aiSend();
+    $app.querySelectorAll('[data-use]').forEach(b => b.onclick = () => aiUse(b.dataset.use.split(',').map(Number)));
+    if (A.fresh) { const el = document.getElementById(`ai-${A.fresh.model}-${A.fresh.effort}`); if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' }); A.fresh = null; }
+  }
+  function aiScrollTo(it) { const el = document.getElementById(`ai-${it.model}-${it.effort}`); if (el) { el.scrollIntoView({ block: 'start', behavior: 'smooth' }); el.querySelector('details').open = true; } }
+  // モデルとエフォートを選ぶ（Claude のモデル選びのような形）
+  function openAIPicker() {
+    const A = S.ai, I = A.info;
+    let m = A.model, e = A.effort;
+    const draw = () => {
+      const box = $layer.querySelector('.ai-pk'); if (!box) return;
+      box.innerHTML = `<div class="ai-sec">モデル</div>${I.models.map(x => `<button class="ai-opt${x.id === m ? ' on' : ''}" data-m="${x.id}"><span class="t"><b>${esc(x.name)}</b><small>${esc(x.desc)}</small></span><span class="p">${fmt(I.prices[x.id][e])}pt</span><i class="ck" aria-hidden="true"></i></button>`).join('')}
+        <div class="ai-sec">エフォート</div><div class="ai-seg" role="radiogroup">${I.efforts.map(x => `<button role="radio" aria-checked="${x.id === e}" class="${x.id === e ? 'on' : ''}" data-e="${x.id}">${esc(x.name)}</button>`).join('')}</div>
+        <p class="ai-edesc">${esc((I.efforts.find(x => x.id === e) || {}).desc || '')}</p>
+        <div style="padding:6px 16px 0"><button class="btn gold block" id="aiOk">${esc(aiName(m))}・エフォート ${esc(aiEff(e))}（${fmt(I.prices[m][e])}pt）</button></div>`;
+      box.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { m = b.dataset.m; draw(); });
+      box.querySelectorAll('[data-e]').forEach(b => b.onclick = () => { e = b.dataset.e; draw(); });
+      document.getElementById('aiOk').onclick = () => { A.model = m; A.effort = e; store.set('ai_model', m); store.set('ai_effort', e); closeLayer(); renderAI(); };
+    };
+    openLayer(`<div class="scrim" data-close></div><div class="sheet" role="dialog" aria-label="モデルとエフォート"><div class="grab"><span></span></div>
+      <div class="sh"><h2>モデルとエフォート</h2><button class="xbtn" data-close aria-label="閉じる">✕</button></div><div class="ai-pk"></div></div>`);
+    draw();
+  }
+  async function aiSend() {
+    const A = S.ai, v = S.data.current;
+    if (!v || A.pend) return;
+    const model = A.model, effort = A.effort, t0 = Date.now();
+    A.pend = { model, effort };
+    renderAI();
+    const lst = document.querySelector('.ai-list'); if (lst && lst.lastElementChild) lst.lastElementChild.scrollIntoView({ block: 'end', behavior: 'smooth' });
+    let k = 0;
+    const tick = setInterval(() => { const s = document.getElementById('aiStep'); if (s) s.textContent = AI_STEPS[k++ % AI_STEPS.length] + '…'; }, Math.max(500, AI_WAIT[effort] / AI_STEPS.length));
+    try {
+      const r = await api('aiBuy', { weekId: v.weekId, model, effort }, { loading: false });
+      const rest = AI_WAIT[effort] - (Date.now() - t0); if (rest > 0) await new Promise(res => setTimeout(res, rest));
+      A.info.balance = r.balance; S.data.me.balance = r.balance;
+      if (!A.info.items.some(x => x.model === r.item.model && x.effort === r.item.effort)) A.info.items.push(r.item);
+      A.fresh = r.item;
+    } catch (e) {} finally { clearInterval(tick); A.pend = null; }
+    if (S.screen === 'ai') renderAI();
+  }
+  // AIの買い目を、予想タブの選択に入れる（決定は自分で押す）
+  function aiUse(picks) {
+    const v = S.data.current; if (!v) return;
+    if (v.myPred) S.editing = true;
+    S.editingInit = v.weekId + (S.editing ? 'e' : '');
+    S.picks = { 火: picks[0], 水: picks[1], 木: picks[2] };
+    if (!S.bet) S.bet = v.myPred ? String(v.myPred.bet) : String(Math.min(1000, Math.floor(S.data.me.balance / 100) * 100) || '');
+    S.screen = null; S.tab = 'yoso'; S.ai.fresh = null; render(); window.scrollTo(0, 0);
+    toast('AIの買い目を入れました');
+  }
+
   // ---------- サブ画面 ----------
   function subBar(title) { return `<header class="bar" style="justify-content:flex-start"><button class="ibtn" id="back" aria-label="戻る" style="font-size:22px;padding-bottom:3px">‹</button><b class="sub-title">${title}</b></header>`; }
   async function openHistory() {
@@ -795,6 +910,7 @@
       document.getElementById('back').onclick = () => { S.screen = 'history'; render(); };
       bindResult(S.view); return;
     }
+    if (sc === 'ai' && S.ai) { renderAI(); return; }
     if (sc === 'notify') { renderNotify(); return; }
     if (sc === 'notice') { renderNotices(); return; }
     if (sc === 'icon') {
