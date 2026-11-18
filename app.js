@@ -660,17 +660,22 @@
   }
   function closeLayer() { $layer.innerHTML = ''; document.removeEventListener('keydown', escClose); }
   function escClose(e) { if (e.key === 'Escape') closeLayer(); }
+  // メニューの並び：見出しの下に、押せる選択肢を白いかたまりでまとめる（頭に小さな絵）
+  const MENU = [
+    ['レース', [['history', '📜', '過去の結果'], ['rule', '📖', 'ルール']]],
+    ['お知らせ・連絡', [['notice', '📢', 'お知らせ'], ['contact', '✉️', '問い合わせ']]],
+    ['つくる', [['post', '📷', 'Slackへの投稿をつくる']]],
+    ['アプリの設定', [['notify', '🔔', '通知'], ['icon', '🍜', 'アプリのアイコン']]],
+    ['アカウント', [['nick', '👤', 'ニックネームを変える'], ['pass', '🔑', 'パスワードを変える']]],
+  ];
+  const mb = (m, ic, t, cls) => `<button data-m="${m}"${cls ? ` class="${cls}"` : ''}><i aria-hidden="true">${ic}</i><span>${t}</span></button>`;
   function openMenu() {
     const D = S.data;
     openLayer(`<div class="scrim" data-close></div><aside class="drawer" role="dialog" aria-label="メニュー">
       <div class="bar" style="position:static"><b style="font-size:15px">メニュー</b><button class="ibtn" data-close aria-label="閉じる" style="font-size:16px">✕</button></div>
       <div class="who">${esc(D.me.nick)}</div>
       <div class="bal"><span>持ち点</span><b>${fmt(D.me.balance)} <span style="font-size:13px">pt</span></b></div>
-      <nav class="mlist">${D.me.canRefill ? '<button data-m="refill" class="mrf">ptを補充する</button>' : ''}<span class="sec">レース</span><button data-m="history">過去の結果</button><button data-m="rule">ルール</button>
-      <span class="sec" style="border-top:1px solid var(--line)">お知らせ・連絡</span><button data-m="notice">お知らせ</button><button data-m="contact">問い合わせ</button>
-      <span class="sec" style="border-top:1px solid var(--line)">つくる</span><button data-m="post">Slackへの投稿をつくる</button>
-      <span class="sec" style="border-top:1px solid var(--line)">アプリの設定</span><button data-m="notify">通知</button><button data-m="icon">アプリのアイコン</button>
-      <span class="sec" style="border-top:1px solid var(--line)">アカウント</span><button data-m="nick">ニックネームを変える</button><button data-m="pass">パスワードを変える</button></nav>
+      <nav class="mlist">${D.me.canRefill ? `<div class="grp">${mb('refill', '💰', 'ptを補充する', 'mrf')}</div>` : ''}${MENU.map(([sec, items]) => `<span class="sec">${sec}</span><div class="grp">${items.map(([m, ic, t]) => mb(m, ic, t)).join('')}</div>`).join('')}</nav>
       <div style="margin-top:auto;padding:16px"><button class="btn block" data-m="logout" style="border:1.5px solid var(--red);background:#FFF;color:var(--red);font-weight:700">ログアウト</button></div></aside>`);
     $layer.querySelectorAll('[data-m]').forEach(b => b.onclick = () => {
       const m = b.dataset.m; closeLayer();
