@@ -24,7 +24,7 @@
   // ホーム画面に追加したときの名前とアイコン（PWA）。テスト環境（/test/）は名前とアイコンに「テスト」が付く
   // アイコンは参加者が選べる（メニューの「アプリのアイコン」）。iPhone は追加した瞬間の apple-touch-icon を使うので、選べるのは追加する前だけ
   const PWA_TEST = /\/test\//.test(location.pathname);
-  const ICONS = [['default', '既定'], ['light', 'ライト'], ['dark', 'ダーク'], ['red', '赤'], ['neon', 'ネオン'], ['neonblue', 'ネオン青'], ['led', '電光掲示板'], ['gold', '金の雷紋'], ['3d', '3D'], ['holo', 'ホロ'], ['yoichi', '夜市'], ['seika', '青花'], ['chochin', '提灯'], ['keiba', '競馬新聞'], ['hisui', '翡翠']];
+  const ICONS = [['default', '既定'], ['light', 'ライト'], ['dark', 'ダーク'], ['longshadow', '長い影'], ['aqua', 'アクア'], ['glass', 'ガラス'], ['neon', 'ネオン'], ['neonblue', 'ネオン青'], ['terminal', 'ターミナル'], ['led', '電光掲示板'], ['yoichi', '夜市'], ['gold', '金の雷紋'], ['seika', '青花'], ['chochin', '提灯'], ['hisui', '翡翠']];
   const IS_STANDALONE = window.navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
   const iconSrc = (id, size) => 'assets/pwa/icons/' + id + (PWA_TEST ? '-test' : '') + '-' + size + '.png';
   (function () {
