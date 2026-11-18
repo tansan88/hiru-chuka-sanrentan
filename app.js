@@ -19,7 +19,7 @@
   const ENV_TEST = /\/test\//.test(location.pathname) || /[?&]env=test(&|$)/.test(location.search);
   const API_URL = window.CONFIG ? (ENV_TEST ? CONFIG.API_URL_TEST : CONFIG.API_URL) || '' : '';
   const NO_API = !API_URL;
-  // ?post を付けて開くと「Slackへの投稿をつくる」だけの画面（ログイン不要・アプリには何も記録しない）
+  // ?post を付けて開くと「Slackへの投稿をつくる」だけの画面（ログインが要る。送ったメニューは食事の記録に残す）
   const POST_MODE = /[?&]post(=|&|$)/.test(location.search);
   // ホーム画面に追加したときの名前とアイコン（PWA）。テスト環境（/test/）は名前とアイコンに「テスト」が付く
   // アイコンは参加者が選べる（メニューの「アプリのアイコン」）。iPhone は追加した瞬間の apple-touch-icon を使うので、選べるのは追加する前だけ
@@ -223,7 +223,7 @@
   function renderAuth() {
     const reg = S.authMode === 'register';
     $app.innerHTML = `<header class="bar">${LOGO}</header>` + (NO_API ? '<div class="demo">config.js に Apps Script のURLが設定されていません</div>' : '') +
-      `<div class="hello">${CHEF}<h1>${reg ? 'はじめての方' : 'いらっしゃいませ！'}</h1>${POST_MODE ? '<p style="margin:6px 0 0;font-size:13px;color:var(--sub)">投稿の前にログインしてください（だれが食べたかを記録します）</p>' : ''}</div>
+      `<div class="hello">${CHEF}<h1>${reg ? 'はじめての方' : 'いらっしゃいませ！'}</h1></div>
       <form class="form" id="authf" autocomplete="on">
         <label class="field"><span>ニックネーム</span><input id="nick" name="username" autocomplete="username" maxlength="16" required></label>
         <div class="field"><span>パスワード（数字4桁）</span>${pinBox(reg ? 'p-reg' : 'p-log')}</div>
@@ -242,7 +242,7 @@
       try {
         const r = await api(reg ? 'register' : 'login', { nick, pass });
         S.token = r.token; store.set('hc_token', r.token); S.tab = 'yoso';
-        if (POST_MODE) { S.post.nick = nick; render(); flushPostLog(); return; }
+        if (POST_MODE) { render(); flushPostLog(); return; }
         if (r.state) { S.data = r.state; render(); maybeNotice(); } else await refresh(); // ログインの返事に画面の中身も入っている（お知らせもここで出す）
       } catch (e) { er.textContent = e.message; }
     };
@@ -578,7 +578,7 @@
         ${(P.menus || []).length ? `<label class="field"><span>今週のメニューから選ぶ</span><select id="pmenu"><option value="">選んでください</option>${P.menus.map((m, i) => `<option value="${i}" ${P.name.trim() === m.name ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>` : ''}
         <label class="field"><span>メニュー名</span><input id="pname" maxlength="40" value="${esc(P.name)}" placeholder="例：麻婆豆腐" enterkeyhint="done"></label>
         <button class="btn slack block" id="psend" ${ready ? '' : 'disabled'}>Slackに送る</button>
-        <span class="pnote"><b>①</b> 共有の画面で Slack を選び、送り先のチャンネルを選ぶ<br><b>②</b> メッセージ欄を長押しして「ペースト」（文字はコピー済み）<br><b>③</b> 送信<br>送ったメニューは${P.nick ? `「${esc(P.nick)}」が` : ''}食べたものとして記録します（予想の配当には関係しません）。</span>
+        <span class="pnote"><b>①</b> 共有の画面で Slack を選び、送り先のチャンネルを選ぶ<br><b>②</b> メッセージ欄を長押しして「ペースト」（文字はコピー済み）<br><b>③</b> 送信</span>
         <div class="post-foot"><a class="lnk" href="${esc(appUrl())}">昼中華3連単を開く ›</a></div>
       </div>`;
     const take = cam => picker.open(cam, ph => { P.ph = ph; render(); });
@@ -1381,7 +1381,7 @@
     if (hiddenAt && Date.now() - hiddenAt > 5 * 60000 && S.token && S.data && !POST_MODE && !S.editing && !S.screen && !$layer.innerHTML) refresh({ loading: false, quiet: true }).catch(() => {});
     hiddenAt = 0;
   });
-  if (S.token && POST_MODE) api('postMe', {}, { loading: false, quiet: true }).then(r => { S.post.nick = r.nick; render(); }).catch(() => {});
+  if (S.token && POST_MODE) api('postMe', {}, { loading: false, quiet: true }).catch(() => {}); // ログインが切れていればログイン画面へ
   if (S.token && !POST_MODE) {
     if (S.tab === 'host') loadHost(true).then(() => { if (!S.data) refresh().catch(() => {}); });
     else refresh().then(() => { if (S.tab === 'kekka') maybeGong(S.data.lastResult); }).catch(() => {});
