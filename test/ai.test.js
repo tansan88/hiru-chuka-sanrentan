@@ -9,7 +9,7 @@ const sh = n => SS.getSheetByName(n);
 try {
   ctx.初期設定();
   const keys = sh('設定').data.map(r => r[0]);
-  ok(['AI予想の値段（Paikoo）', 'AI予想の値段（Wontonnet）', 'AI予想の値段（Gyopus）', 'AI予想のエフォート倍率（中）', 'AI予想のエフォート倍率（高）', 'AI予想の無料期間（この日まで）'].every(k => keys.includes(k)), '設定シートに値段の項目ができる', keys);
+  ok(['AI予想の値段（Hakkaku）', 'AI予想の値段（Shumainet）', 'AI予想の値段（Octopus）', 'AI予想のエフォート倍率（中）', 'AI予想のエフォート倍率（高）', 'AI予想の無料期間（この日まで）'].every(k => keys.includes(k)), '設定シートに値段の項目ができる', keys);
   const setS = (k, v) => { sh('設定').data.find(x => x[0] === k)[1] = v; };
   setS('AI予想の無料期間（この日まで）', ''); // まずは有料で試す
   const h = call('register', { nick: 'てんちょう', pass: '0000' }).token;
@@ -39,7 +39,7 @@ try {
   r = call('aiList', { token: g });
   ok(r.ok && r.canBuy && r.weekId === wk && r.items.length === 0, '受付中なら買える', r);
   ok(r.prices.haiku.low === 200 && r.prices.haiku.mid === 400 && r.prices.haiku.high === 600 && r.prices.sonnet.low === 500 && r.prices.opus.high === 3000, '値段＝モデルの値段×エフォートの倍率', r.prices);
-  ok(r.models.map(m => m.name).join() === 'Paikoo,Wontonnet,Gyopus' && r.efforts.map(e => e.name).join() === '低,中,高', 'モデルとエフォートの名前', r);
+  ok(r.models.map(m => m.name).join() === 'Hakkaku,Shumainet,Octopus' && r.efforts.map(e => e.name).join() === '低,中,高', 'モデルとエフォートの名前', r);
   const before = r.balance;
   ok(before === 10000, '最初は10,000pt', before);
 
@@ -109,7 +109,7 @@ try {
   ok(!r.ok && /足りません/.test(r.error), '持ち点が足りないと買えない', r);
 
   // 値段は設定シートで変えられる
-  sh('設定').data.find(x => x[0] === 'AI予想の値段（Paikoo）')[1] = 150;
+  sh('設定').data.find(x => x[0] === 'AI予想の値段（Hakkaku）')[1] = 150;
   sh('設定').data.find(x => x[0] === 'AI予想のエフォート倍率（高）')[1] = 4;
   r = call('aiList', { token: g2 });
   ok(r.prices.haiku.low === 200 && r.prices.haiku.high === 600 && r.prices.opus.high === 4000, '設定で値段が変わる（100pt単位に切り上げ）', r.prices);
