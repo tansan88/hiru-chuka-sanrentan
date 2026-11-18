@@ -583,10 +583,10 @@ input[type=date]:disabled{color:var(--sub);background:var(--bg)}
 .ai-buy{display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-top:1px dashed var(--line2)}
 .ai-buy .no{flex:none;margin-top:1px;width:20px;height:20px;border-radius:50%;background:var(--turf);color:#FFF;font-size:11px;font-weight:900;display:flex;align-items:center;justify-content:center}
 .ai-buy .b{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
-.ai-pk{display:flex;align-items:center;gap:5px;font-size:13px;font-weight:700;line-height:1.35}
-.ai-pk em{font-style:normal;font-size:11px;color:var(--sub);font-weight:700;width:14px;flex:none}
-.ai-pk .waku{width:16px;height:16px;font-size:10px;flex:none}
-.ai-pk span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ai-bpk{display:flex;align-items:center;gap:5px;font-size:13px;font-weight:700;line-height:1.35}
+.ai-bpk em{font-style:normal;font-size:11px;color:var(--sub);font-weight:700;width:14px;flex:none}
+.ai-bpk .waku{width:16px;height:16px;font-size:10px;flex:none}
+.ai-bpk span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ai-buy small{font-size:11.5px;color:var(--sub)}
 .ai-use{flex:none;min-height:34px;padding:0 10px;font-size:12px}
 .ai-conf{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;background:var(--bg);border-radius:6px;padding:8px 10px;font-size:12px}

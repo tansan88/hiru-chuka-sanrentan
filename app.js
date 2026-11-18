@@ -804,7 +804,7 @@
   }
   function aiBuys(res) {
     const can = S.ai.info.canBuy;
-    const rows = res.buys.map((b, i) => `<div class="ai-buy"><span class="no">${i + 1}</span><div class="b">${b.picks.map((w, j) => `<span class="ai-pk"><em>${DAYS[j]}</em>${waku(w)}<span>${esc(b.names[j])}</span></span>`).join('')}<small>当たる見込み ${b.p}%　・　${oddsTxt(b.mul)}倍</small></div>${can ? `<button class="btn gray ai-use" data-use="${b.picks.join(',')}">予想に入れる</button>` : ''}</div>`).join('');
+    const rows = res.buys.map((b, i) => `<div class="ai-buy"><span class="no">${i + 1}</span><div class="b">${b.picks.map((w, j) => `<span class="ai-bpk"><em>${DAYS[j]}</em>${waku(w)}<span>${esc(b.names[j])}</span></span>`).join('')}<small>当たる見込み ${b.p}%　・　${oddsTxt(b.mul)}倍</small></div>${can ? `<button class="btn gray ai-use" data-use="${b.picks.join(',')}">予想に入れる</button>` : ''}</div>`).join('');
     return `<div class="ai-h">買い目（3連単）</div>${rows}`;
   }
   function aiItem(it, opt) {
