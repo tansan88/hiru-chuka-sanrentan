@@ -791,8 +791,12 @@
   // モデル＝何を見て読むか、エフォート＝どこまで深く読むか。中身は統計（サーバーで計算）
   const AI_WAIT = { low: 1400, mid: 2800, high: 4800 }; // 考え中を見せる最短の時間
   const AI_STEPS = ['出馬表を読んでいます', '過去の結果を数えています', '曜日ごとの出方を見ています', '倍率と見比べています', '買い目を絞っています'];
+  // AIのマーク：4枚の菱形（碧・山吹・紅・青）。考え中だけ90°ずつ組み替わる
+  function aiMark(on) {
+    return `<svg class="ai-mark${on ? ' on' : ''}" width="26" height="26" viewBox="0 0 100 100" aria-hidden="true"><g>${['#00A86B', '#FFC400', '#FF4D3F', '#3D7BFF'].map((c, i) => `<path d="M50 50l11-24 11 24-11 24z" transform="rotate(${i * 90} 50 50) translate(-11 -24)" fill="${c}"/>`).join('')}</g></svg>`;
+  }
   function aiEntry(v) {
-    return `<button class="ai-entry" data-act="ai"><span class="ai-badge" aria-hidden="true">AI</span><span class="t"><b>AI予想</b><small>${v.closed ? '買った予想を見る' : 'モデルとエフォートを選んで、予想してもらう'}</small></span><span class="go" aria-hidden="true">›</span></button>`;
+    return `<button class="ai-entry" data-act="ai">${aiMark(false)}<span class="t"><b>AI予想</b><small>${v.closed ? '買った予想を見る' : 'モデルとエフォートを選んで、予想してもらう'}</small></span><span class="go" aria-hidden="true">›</span></button>`;
   }
   async function openAI() {
     const v = S.data.current;
@@ -823,14 +827,14 @@
     const stars = res.conf ? `<div class="ai-conf"><span>自信度</span><b>${'★'.repeat(res.conf.stars)}<i>${'★'.repeat(3 - res.conf.stars)}</i></b><small>200通りの読み直しで◎が1位だった割合 ${res.conf.pct}%</small></div>` : '';
     const lines = res.think.map((t, i) => `<li${opt.reveal ? ` style="animation-delay:${i * 0.35}s"` : ''}>${esc(t)}</li>`).join('');
     return `<article class="ai-item${opt.reveal ? ' reveal' : ''}" id="ai-${it.model}-${it.effort}">
-      <div class="ai-meta"><span class="ai-badge" aria-hidden="true">AI</span><b>${esc(aiName(it.model))}</b><span>エフォート ${esc(aiEff(it.effort))}</span><span class="pt">${it.pt ? fmt(it.pt) + 'pt' : '無料'}</span></div>
+      <div class="ai-meta">${aiMark(false)}<b>${esc(aiName(it.model))}</b><span>エフォート ${esc(aiEff(it.effort))}</span><span class="pt">${it.pt ? fmt(it.pt) + 'pt' : '無料'}</span></div>
       <details class="ai-think"${opt.open ? ' open' : ''}><summary>考えた過程</summary><ol>${lines}</ol></details>
       <div class="ai-ans"${opt.reveal ? ` style="animation-delay:${res.think.length * 0.35 + 0.2}s"` : ''}>${aiDays(res)}${aiBuys(res)}${stars}<p class="ai-foot">データから読んだ予想です。外れても恨みっこなし。</p></div>
     </article>`;
   }
   function aiPending(p) {
-    return `<article class="ai-item"><div class="ai-meta"><span class="ai-badge" aria-hidden="true">AI</span><b>${esc(aiName(p.model))}</b><span>エフォート ${esc(aiEff(p.effort))}</span></div>
-      <div class="ai-wait"><span class="ai-dots" aria-hidden="true"><i></i><i></i><i></i></span><span id="aiStep">考え中…</span></div></article>`;
+    return `<article class="ai-item"><div class="ai-meta">${aiMark(true)}<b>${esc(aiName(p.model))}</b><span>エフォート ${esc(aiEff(p.effort))}</span></div>
+      <div class="ai-wait"><span id="aiStep">考え中…</span></div></article>`;
   }
   function renderAI() {
     const A = S.ai, I = A.info;
