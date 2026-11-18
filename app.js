@@ -173,7 +173,7 @@
 
   // ---------- 描画の入口 ----------
   function render() {
-    if (POST_MODE) return renderPost();
+    if (POST_MODE) return S.token ? renderPost() : renderAuth(); // 投稿も誰が食べたかを記録するので、ログインが切れたら入り直してもらう
     if (!S.token) return renderAuth();
     if (!S.data) { $app.innerHTML = ''; return; }
     if (S.screen) return renderSub();
@@ -223,7 +223,7 @@
   function renderAuth() {
     const reg = S.authMode === 'register';
     $app.innerHTML = `<header class="bar">${LOGO}</header>` + (NO_API ? '<div class="demo">config.js に Apps Script のURLが設定されていません</div>' : '') +
-      `<div class="hello">${CHEF}<h1>${reg ? 'はじめての方' : 'いらっしゃいませ！'}</h1></div>
+      `<div class="hello">${CHEF}<h1>${reg ? 'はじめての方' : 'いらっしゃいませ！'}</h1>${POST_MODE ? '<p style="margin:6px 0 0;font-size:13px;color:var(--sub)">投稿の前にログインしてください（だれが食べたかを記録します）</p>' : ''}</div>
       <form class="form" id="authf" autocomplete="on">
         <label class="field"><span>ニックネーム</span><input id="nick" name="username" autocomplete="username" maxlength="16" required></label>
         <div class="field"><span>パスワード（数字4桁）</span>${pinBox(reg ? 'p-reg' : 'p-log')}</div>
@@ -242,6 +242,7 @@
       try {
         const r = await api(reg ? 'register' : 'login', { nick, pass });
         S.token = r.token; store.set('hc_token', r.token); S.tab = 'yoso';
+        if (POST_MODE) { S.post.nick = nick; render(); flushPostLog(); return; }
         if (r.state) { S.data = r.state; render(); maybeNotice(); } else await refresh(); // ログインの返事に画面の中身も入っている（お知らせもここで出す）
       } catch (e) { er.textContent = e.message; }
     };
@@ -560,6 +561,13 @@
   // ---------- 投稿をつくる（?post。三連単とは関係なく、写真＋メニュー名を Slack へ） ----------
   function postUrl() { return location.pathname + '?post' + (/[?&]env=test(&|$)/.test(location.search) ? '&env=test' : ''); }
   function appUrl() { return location.pathname + (/[?&]env=test(&|$)/.test(location.search) ? '?env=test' : ''); }
+  // 送ったメニューを「食事の記録」に残す。ログインが切れていたら、入り直したあとに送る
+  function flushPostLog() {
+    const P = S.post, name = P.pending;
+    if (!name || !S.token) return;
+    P.pending = ''; P.logged = name;
+    api('postLog', { name }, { loading: false, quiet: true }).catch(e => { P.logged = ''; if (!S.token) P.pending = name; });
+  }
   function renderPost() {
     document.title = '昼中華の投稿';
     const P = S.post, ready = P.ph && P.name.trim();
@@ -570,7 +578,7 @@
         ${(P.menus || []).length ? `<label class="field"><span>今週のメニューから選ぶ</span><select id="pmenu"><option value="">選んでください</option>${P.menus.map((m, i) => `<option value="${i}" ${P.name.trim() === m.name ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>` : ''}
         <label class="field"><span>メニュー名</span><input id="pname" maxlength="40" value="${esc(P.name)}" placeholder="例：麻婆豆腐" enterkeyhint="done"></label>
         <button class="btn slack block" id="psend" ${ready ? '' : 'disabled'}>Slackに送る</button>
-        <span class="pnote"><b>①</b> 共有の画面で Slack を選び、送り先のチャンネルを選ぶ<br><b>②</b> メッセージ欄を長押しして「ペースト」（文字はコピー済み）<br><b>③</b> 送信<br>送ったメニューは「食べたもの」として記録します（予想の配当には関係しません）。</span>
+        <span class="pnote"><b>①</b> 共有の画面で Slack を選び、送り先のチャンネルを選ぶ<br><b>②</b> メッセージ欄を長押しして「ペースト」（文字はコピー済み）<br><b>③</b> 送信<br>送ったメニューは${P.nick ? `「${esc(P.nick)}」が` : ''}食べたものとして記録します（予想の配当には関係しません）。</span>
         <div class="post-foot"><a class="lnk" href="${esc(appUrl())}">昼中華3連単を開く ›</a></div>
       </div>`;
     const take = cam => picker.open(cam, ph => { P.ph = ph; render(); });
@@ -578,7 +586,7 @@
     document.getElementById('palb').onclick = () => take(false);
     const nm = document.getElementById('pname');
     nm.oninput = () => { P.name = nm.value; document.getElementById('psend').disabled = !(P.ph && P.name.trim()); const sel = document.getElementById('pmenu'); if (sel) { const i = (P.menus || []).findIndex(m => m.name === P.name.trim()); sel.value = i >= 0 ? String(i) : ''; } };
-    document.getElementById('psend').onclick = () => { if (P.ph && P.name.trim()) { sharePost(P.ph, P.name.trim()); if (P.logged !== P.name.trim()) { P.logged = P.name.trim(); api('postLog', { token: store.get('hc_token') || '', name: P.logged }, { loading: false, quiet: true }).catch(() => { P.logged = ''; }); } } };
+    document.getElementById('psend').onclick = () => { if (P.ph && P.name.trim()) { sharePost(P.ph, P.name.trim()); if (P.logged !== P.name.trim()) { P.pending = P.name.trim(); flushPostLog(); } } };
     const pm = document.getElementById('pmenu');
     if (pm) pm.onchange = () => { if (pm.value === '') return; P.name = P.menus[Number(pm.value)].name; nm.value = P.name; nm.oninput(); };
     // その週のメニューを後ろで読み込む（ログインなしで読める。読めなければ手入力だけ）
@@ -1373,6 +1381,7 @@
     if (hiddenAt && Date.now() - hiddenAt > 5 * 60000 && S.token && S.data && !POST_MODE && !S.editing && !S.screen && !$layer.innerHTML) refresh({ loading: false, quiet: true }).catch(() => {});
     hiddenAt = 0;
   });
+  if (S.token && POST_MODE) api('postMe', {}, { loading: false, quiet: true }).then(r => { S.post.nick = r.nick; render(); }).catch(() => {});
   if (S.token && !POST_MODE) {
     if (S.tab === 'host') loadHost(true).then(() => { if (!S.data) refresh().catch(() => {}); });
     else refresh().then(() => { if (S.tab === 'kekka') maybeGong(S.data.lastResult); }).catch(() => {});

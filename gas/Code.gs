@@ -115,7 +115,7 @@ function doPost(e) {
   if (req.action !== 'clientError' && (Number(req.v) || 0) < MIN_APP_VERSION) return json_({ ok: false, reload: true, error: 'アプリが新しくなりました。画面を開き直してください' });
   // 読むだけの操作は順番待ちをしない（書き込みだけ1件ずつ処理する）
   // readMenu は文字認識に数秒かかるが、シートには書かないので順番待ちをしない
-  const readOnly = ['state', 'history', 'week', 'hostState', 'clientError', 'readMenu', 'postMenus', 'pushKey', 'notices'].indexOf(req.action) >= 0;
+  const readOnly = ['state', 'history', 'week', 'hostState', 'clientError', 'readMenu', 'postMenus', 'postMe', 'pushKey', 'notices'].indexOf(req.action) >= 0;
   const lock = readOnly ? null : LockService.getScriptLock();
   try {
     if (lock) lock.waitLock(20000);
@@ -522,18 +522,20 @@ const API = {
     return { menus: db.menus.filter(m => m.週ID === w.週ID && String(m.品名) !== OTHER_NAME).sort((a, b) => Number(a.枠) - Number(b.枠)).map(m => ({ waku: Number(m.枠), name: String(m.品名) })) };
   },
   // 投稿をつくる：送ったメニューを「食事の記録」に残す（ゲームの配当には関係しない。AI予想の手がかりにする）
-  // 誰が食べたかは、ログインしている人だけ記録する（ログインなしは「不明」。AI予想はホストごとの読みに使わない）
+  // 投稿画面もログインが要る（2026-11-19。ホスト以外も使うので、誰が食べたかを必ず記録する）
+  // 投稿画面を開いたときに、ログインが切れていないかを確かめる
+  postMe(r) { const u = auth_(r); return { nick: u.nick }; },
   postLog(r) {
     const name = String(r.name || '').trim().slice(0, 40);
     if (!name) fail_('メニュー名を入れてください');
-    let u = null; try { if (r.token) u = auth_(r); } catch (e) { u = null; }
+    const u = auth_(r);
     const db = load_();
     const wid = weekIdOf_();
     const w = db.weeks.find(x => x.週ID === wid && x.状態 !== '下書き') || currentWeek_(db);
     const now = new Date();
     const m = w ? db.menus.find(x => x.週ID === w.週ID && String(x.品名).trim() === name) : null;
-    const uid = u ? u.id : '', nick = u ? u.nick : '';
-    sheet_('食事の記録').appendRow([txt_(Utilities.formatDate(now, 'Asia/Tokyo', 'yyyy-MM-dd')), '日月火水木金土'.charAt(now.getDay()), txt_(w ? w.週ID : wid), m ? Number(m.枠) : '', txt_(name), uid, txt_(nick || ''), u ? 'ログインした人' : '不明（ログインなし）', now]);
+    const uid = u.id, nick = u.nick;
+    sheet_('食事の記録').appendRow([txt_(Utilities.formatDate(now, 'Asia/Tokyo', 'yyyy-MM-dd')), '日月火水木金土'.charAt(now.getDay()), txt_(w ? w.週ID : wid), m ? Number(m.枠) : '', txt_(name), uid, txt_(nick || ''), 'ログインした人', now]);
     return { saved: true };
   },
   readMenu(r) {
