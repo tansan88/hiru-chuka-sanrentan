@@ -813,7 +813,7 @@
     const stars = res.conf ? `<div class="ai-conf"><span>自信度</span><b>${'★'.repeat(res.conf.stars)}<i>${'★'.repeat(3 - res.conf.stars)}</i></b><small>読み直しても◎が変わらなかった割合 ${res.conf.pct}%</small></div>` : '';
     const lines = res.think.map((t, i) => `<li${opt.reveal ? ` style="animation-delay:${i * 0.35}s"` : ''}>${esc(t)}</li>`).join('');
     return `<article class="ai-item${opt.reveal ? ' reveal' : ''}" id="ai-${it.model}-${it.effort}">
-      <div class="ai-meta"><span class="ai-badge" aria-hidden="true">AI</span><b>${esc(aiName(it.model))}</b><span>エフォート ${esc(aiEff(it.effort))}</span><span class="pt">${fmt(it.pt)}pt</span></div>
+      <div class="ai-meta"><span class="ai-badge" aria-hidden="true">AI</span><b>${esc(aiName(it.model))}</b><span>エフォート ${esc(aiEff(it.effort))}</span><span class="pt">${it.pt ? fmt(it.pt) + 'pt' : '無料'}</span></div>
       <details class="ai-think"${opt.open ? ' open' : ''}><summary>考えた過程</summary><ol>${lines}</ol></details>
       <div class="ai-ans"${opt.reveal ? ` style="animation-delay:${res.think.length * 0.35 + 0.2}s"` : ''}>${aiDays(res)}${aiBuys(res)}${stars}<p class="ai-foot">データから読んだ予想です。外れても恨みっこなし。</p></div>
     </article>`;
@@ -828,9 +828,11 @@
     const bought = I.items.find(x => x.model === A.model && x.effort === A.effort);
     const items = I.items.map(it => aiItem(it, it === A.fresh ? { open: true, reveal: true } : {})).join('');
     const intro = I.items.length || A.pend ? '' : `<div class="ai-intro">${chefImg('smile')}<div><b>今週の3連単を、データで読みます</b><span>下でモデルとエフォートを選んで送ってください。モデルが上のものほど多くのことを読み、エフォートが高いほどじっくり読みます。外れても恨みっこなし。</span><small>読むのは、公開した出馬表・いまの倍率・これまでの結果だけです</small></div></div>`;
-    const sendLbl = bought ? '見る' : `${fmt(price)}pt`;
+    const sendLbl = bought ? '見る' : price ? `${fmt(price)}pt` : '無料';
+    const freeTxt = I.freeUntil ? (() => { const [, mo, d] = I.freeUntil.split('-').map(Number); return `${mo}/${d}まで`; })() : '';
     const canSend = I.canBuy && !A.pend && (bought || price <= I.balance);
     $app.innerHTML = `<header class="bar"><div style="display:flex;align-items:center;gap:10px"><button class="ibtn" id="back" aria-label="戻る" style="font-size:22px;padding-bottom:3px">‹</button><b class="sub-title">AI予想</b></div><span class="pts">持ち点<br><b>${fmt(I.balance)}</b> pt</span></header>
+      ${freeTxt && I.canBuy ? `<div class="ai-free"><b>期間限定で無料</b><span>${freeTxt}、どのモデル・エフォートもptを使わずに試せます</span></div>` : ''}
       <div class="ai-list">${intro}${items}${A.pend ? aiPending(A.pend) : ''}</div>
       <div class="ai-dock">${I.canBuy ? `<div class="ai-comp">
         <div class="ai-prompt">今週の3連単を予想して</div>
@@ -850,10 +852,10 @@
     let m = A.model, e = A.effort;
     const draw = () => {
       const box = $layer.querySelector('.ai-pk'); if (!box) return;
-      box.innerHTML = `<div class="ai-sec">モデル</div>${I.models.map(x => `<button class="ai-opt${x.id === m ? ' on' : ''}" data-m="${x.id}"><span class="t"><b>${esc(x.name)}</b><small>${esc(x.desc)}</small></span><span class="p">${fmt(I.prices[x.id][e])}pt</span><i class="ck" aria-hidden="true"></i></button>`).join('')}
+      box.innerHTML = `<div class="ai-sec">モデル</div>${I.models.map(x => `<button class="ai-opt${x.id === m ? ' on' : ''}" data-m="${x.id}"><span class="t"><b>${esc(x.name)}</b><small>${esc(x.desc)}</small></span><span class="p">${I.prices[x.id][e] ? fmt(I.prices[x.id][e]) + 'pt' : `<b class="fr">無料</b><s>${fmt(I.basePrices[x.id][e])}pt</s>`}</span><i class="ck" aria-hidden="true"></i></button>`).join('')}
         <div class="ai-sec">エフォート</div><div class="ai-seg" role="radiogroup">${I.efforts.map(x => `<button role="radio" aria-checked="${x.id === e}" class="${x.id === e ? 'on' : ''}" data-e="${x.id}">${esc(x.name)}</button>`).join('')}</div>
         <p class="ai-edesc">${esc((I.efforts.find(x => x.id === e) || {}).desc || '')}</p>
-        <div style="padding:6px 16px 0"><button class="btn gold block" id="aiOk">${esc(aiName(m))}・エフォート ${esc(aiEff(e))}（${fmt(I.prices[m][e])}pt）</button></div>`;
+        <div style="padding:6px 16px 0"><button class="btn gold block" id="aiOk">${esc(aiName(m))}・エフォート ${esc(aiEff(e))}（${I.prices[m][e] ? fmt(I.prices[m][e]) + 'pt' : '無料'}）</button></div>`;
       box.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { m = b.dataset.m; draw(); });
       box.querySelectorAll('[data-e]').forEach(b => b.onclick = () => { e = b.dataset.e; draw(); });
       document.getElementById('aiOk').onclick = () => { A.model = m; A.effort = e; store.set('ai_model', m); store.set('ai_effort', e); closeLayer(); renderAI(); };

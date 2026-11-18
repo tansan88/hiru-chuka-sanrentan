@@ -625,3 +625,8 @@ input[type=date]:disabled{color:var(--sub);background:var(--bg)}
 .ai-seg button.on{background:var(--turf);color:#FFF}
 .ai-edesc{margin:8px 16px 8px;font-size:12.5px;color:var(--sub);line-height:1.5}
 @media (prefers-reduced-motion:reduce){.ai-item.reveal .ai-think li,.ai-item.reveal .ai-ans{animation:none;opacity:1}.ai-wait .ai-dots i{animation:none}}
+.ai-free{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;background:var(--red);color:#FFF;padding:8px 14px;font-size:12px}
+.ai-free b{font-size:14px;font-weight:900}
+.ai-opt .p{display:flex;flex-direction:column;align-items:flex-end;line-height:1.2}
+.ai-opt .p .fr{color:var(--red);font-size:14px;font-weight:900}
+.ai-opt .p s{font-size:11px;color:var(--mute);font-weight:500}

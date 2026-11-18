@@ -9,7 +9,9 @@ const sh = n => SS.getSheetByName(n);
 try {
   ctx.初期設定();
   const keys = sh('設定').data.map(r => r[0]);
-  ok(['AI予想の値段（Haiku）', 'AI予想の値段（Sonnet）', 'AI予想の値段（Opus）', 'AI予想のエフォート倍率（中）', 'AI予想のエフォート倍率（高）'].every(k => keys.includes(k)), '設定シートに値段の項目ができる', keys);
+  ok(['AI予想の値段（Paikoo）', 'AI予想の値段（Wontonnet）', 'AI予想の値段（Gyopus）', 'AI予想のエフォート倍率（中）', 'AI予想のエフォート倍率（高）', 'AI予想の無料期間（この日まで）'].every(k => keys.includes(k)), '設定シートに値段の項目ができる', keys);
+  const setS = (k, v) => { sh('設定').data.find(x => x[0] === k)[1] = v; };
+  setS('AI予想の無料期間（この日まで）', ''); // まずは有料で試す
   const h = call('register', { nick: 'てんちょう', pass: '0000' }).token;
   sh('参加者').data.forEach(r => { if (r[1] === 'てんちょう') r[4] = true; });
   const g = call('register', { nick: 'たろう', pass: '1111' }).token;
@@ -37,7 +39,7 @@ try {
   r = call('aiList', { token: g });
   ok(r.ok && r.canBuy && r.weekId === wk && r.items.length === 0, '受付中なら買える', r);
   ok(r.prices.haiku.low === 200 && r.prices.haiku.mid === 400 && r.prices.haiku.high === 600 && r.prices.sonnet.low === 500 && r.prices.opus.high === 3000, '値段＝モデルの値段×エフォートの倍率', r.prices);
-  ok(r.models.map(m => m.name).join() === 'Haiku,Sonnet,Opus' && r.efforts.map(e => e.name).join() === '低,中,高', 'モデルとエフォートの名前', r);
+  ok(r.models.map(m => m.name).join() === 'Paikoo,Wontonnet,Gyopus' && r.efforts.map(e => e.name).join() === '低,中,高', 'モデルとエフォートの名前', r);
   const before = r.balance;
   ok(before === 10000, '最初は10,000pt', before);
 
@@ -107,15 +109,31 @@ try {
   ok(!r.ok && /足りません/.test(r.error), '持ち点が足りないと買えない', r);
 
   // 値段は設定シートで変えられる
-  sh('設定').data.find(x => x[0] === 'AI予想の値段（Haiku）')[1] = 150;
+  sh('設定').data.find(x => x[0] === 'AI予想の値段（Paikoo）')[1] = 150;
   sh('設定').data.find(x => x[0] === 'AI予想のエフォート倍率（高）')[1] = 4;
   r = call('aiList', { token: g2 });
   ok(r.prices.haiku.low === 200 && r.prices.haiku.high === 600 && r.prices.opus.high === 4000, '設定で値段が変わる（100pt単位に切り上げ）', r.prices);
 
+  // ---- 無料期間 ----
+  const today = new Date(); const ymd = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  setS('AI予想の無料期間（この日まで）', ymd(today));
+  r = call('aiList', { token: g2 });
+  ok(r.freeUntil === ymd(today) && r.prices.opus.high === 0 && r.basePrices.opus.high === 4000, '無料期間は今日の終わりまで有効で、値段は0（通常の値段も渡す）', r);
+  let b0 = r.balance;
+  r = call('aiBuy', { token: g2, weekId: wk, model: 'sonnet', effort: 'low' });
+  ok(r.ok && r.item.pt === 0 && r.balance === b0, '無料期間はptが減らない', r);
+  setS('AI予想の無料期間（この日まで）', new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1));
+  r = call('aiList', { token: g2 });
+  ok(r.freeUntil === '' && r.prices.opus.high === 4000, '期間が過ぎたら有料に戻る（日付の形でも読める）', r);
+  setS('AI予想の無料期間（この日まで）', Math.round((new Date(today.getFullYear(), today.getMonth(), today.getDate() + 3).getTime() - new Date(1899, 11, 30).getTime()) / 86400000));
+  ok(call('aiList', { token: g2 }).freeUntil !== '', 'スプレッドシートの通し番号の日付でも読める');
+  setS('AI予想の無料期間（この日まで）', 'あとで');
+  ok(call('aiList', { token: g2 }).freeUntil === '', '日付でなければ無料にしない');
+
   // 締切後は買えない
   sh('週').data.forEach(x => { if (x[0] === wk) x[5] = new Date(Date.now() - 1000); });
   r = call('aiList', { token: g2 });
-  ok(r.ok && !r.canBuy && /締切/.test(r.reason) && r.items.length === 1, '締切後は買えないが、買ったものは見られる', r);
+  ok(r.ok && !r.canBuy && /締切/.test(r.reason) && r.items.length === 2, '締切後は買えないが、買ったものは見られる', r);
   ok(!call('aiBuy', { token: g2, weekId: wk, model: 'haiku', effort: 'low' }).ok, '締切後に買おうとしても断る');
 
   // まだ確定した週がないときは人気順だけで読む

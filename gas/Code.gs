@@ -48,11 +48,12 @@ const DEFAULT_SETTINGS = [
   ['エラー通知先', '', 'エラーを知らせるメールの宛先。空ならこのスクリプトを動かしている人（オーナー）'],
   ['いつものメニュー1', '', '新しい週の出馬表の6番に自動で入るメニュー（ホストタブからも変えられる）'],
   ['いつものメニュー2', '', '新しい週の出馬表の7番に自動で入るメニュー'],
-  ['AI予想の値段（Haiku）', 200, 'AI予想のエフォート「低」の値段。中・高はこれに倍率をかける'],
-  ['AI予想の値段（Sonnet）', 500, '同上'],
-  ['AI予想の値段（Opus）', 1000, '同上'],
+  ['AI予想の値段（Paikoo）', 200, 'AI予想のエフォート「低」の値段。中・高はこれに倍率をかける'],
+  ['AI予想の値段（Wontonnet）', 500, '同上'],
+  ['AI予想の値段（Gyopus）', 1000, '同上'],
   ['AI予想のエフォート倍率（中）', 2, 'エフォート「中」は「低」の何倍の値段か'],
   ['AI予想のエフォート倍率（高）', 3, 'エフォート「高」は「低」の何倍の値段か'],
+  ['AI予想の無料期間（この日まで）', '2026-12-25', 'この日の終わりまで、AI予想を無料で使える（空にすると無料期間なし）'],
 ];
 // 出馬表の「その他」：結果を登録するときに、実際に食べた料理名を入れる
 const OTHER_NAME = 'その他';
@@ -147,7 +148,7 @@ const API = {
     try { ensureSettings_(); } catch (e) {}
     const db = load_();
     const w = (r.weekId && db.weeks.find(x => x.週ID === r.weekId)) || currentWeek_(db);
-    const out = { models: AI_MODELS.map(m => ({ id: m.id, name: m.name, desc: m.desc })), efforts: AI_EFFORTS.map(e => ({ id: e.id, name: e.name, desc: e.desc })), prices: aiPrices_(), balance: balance_(u, db), items: [] };
+    const out = { models: AI_MODELS.map(m => ({ id: m.id, name: m.name, desc: m.desc })), efforts: AI_EFFORTS.map(e => ({ id: e.id, name: e.name, desc: e.desc })), prices: aiPrices_(), basePrices: aiBasePrices_(), freeUntil: aiFreeUntil_(), balance: balance_(u, db), items: [] };
     if (!w) { out.reason = 'いまは出馬表が出ていません'; return out; }
     out.weekId = w.週ID;
     out.items = aiItems_(db, w.週ID, u.id);
@@ -615,9 +616,9 @@ const API = {
 // 中身は統計（外のAIは呼ばない）。使うのは公開した出馬表・いまの倍率・確定した週の結果だけ（ホストだけが知る情報は混ぜない）
 // モデル＝何を見て読むか、エフォート＝どこまで深く読むか
 const AI_MODELS = [
-  { id: 'haiku', name: 'Haiku', desc: 'すばやく軽く。人気順の当たりやすさだけで読む', key: 'AI予想の値段（Haiku）', price: 200 },
-  { id: 'sonnet', name: 'Sonnet', desc: 'バランス型。料理ごとの出やすさ・曜日の傾向・同じ料理の続きやすさも読む', key: 'AI予想の値段（Sonnet）', price: 500 },
-  { id: 'opus', name: 'Opus', desc: 'いちばん深い。担当ホストの週の傾向と、倍率の妙味（当たりやすさの割に配当がよいか）まで読む', key: 'AI予想の値段（Opus）', price: 1000 },
+  { id: 'haiku', name: 'Paikoo', desc: 'すばやく軽く。人気順の当たりやすさだけで読む', key: 'AI予想の値段（Paikoo）', price: 200 },
+  { id: 'sonnet', name: 'Wontonnet', desc: 'バランス型。料理ごとの出やすさ・曜日の傾向・同じ料理の続きやすさも読む', key: 'AI予想の値段（Wontonnet）', price: 500 },
+  { id: 'opus', name: 'Gyopus', desc: 'いちばん深い。担当ホストの週の傾向と、倍率の妙味（当たりやすさの割に配当がよいか）まで読む', key: 'AI予想の値段（Gyopus）', price: 1000 },
 ];
 const AI_EFFORTS = [
   { id: 'low', name: '低', desc: '直近4週だけ。買い目1点', key: '', mul: 1, weeks: 4, buys: 1, lines: 2 },
@@ -625,7 +626,21 @@ const AI_EFFORTS = [
   { id: 'high', name: '高', desc: '全部の週を200通りに入れ替えて読み直し、自信度も出す。買い目5点', key: 'AI予想のエフォート倍率（高）', mul: 3, weeks: 0, buys: 5, lines: 99 },
 ];
 const AI_BANDS = ['本命（1・2番人気）', '中穴（3〜5番人気）', '大穴（6番人気から）'];
-function aiPrices_() {
+// 無料期間（設定の日付の終わりまで）。期間中なら終わりの日付、そうでなければ ''
+function aiFreeUntil_() {
+  const v = getSetting_('AI予想の無料期間（この日まで）');
+  if (v === '' || v === null || v === undefined) return '';
+  let d = v && typeof v.getFullYear === 'function' ? v : null;
+  // まとめ読み（Sheets API）だと、日付はスプレッドシートの通し番号で来る
+  if (!d && typeof v === 'number' && v > 30000) { const u = new Date(Math.round((v - 25569) * 86400000)); d = new Date(u.getUTCFullYear(), u.getUTCMonth(), u.getUTCDate()); }
+  if (!d) { const m = String(v).trim().match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/); if (!m) return ''; d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])); }
+  const end = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+  if (new Date() >= end) return '';
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+function aiPrices_() { const base = aiBasePrices_(); if (!aiFreeUntil_()) return base; const out = {}; Object.keys(base).forEach(m => { out[m] = {}; Object.keys(base[m]).forEach(e => out[m][e] = 0); }); return out; }
+function aiBasePrices_() {
   const out = {};
   AI_MODELS.forEach(m => {
     const b = Number(getSetting_(m.key)), base = b >= 0 && getSetting_(m.key) !== '' ? b : m.price;
