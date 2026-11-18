@@ -770,7 +770,8 @@ function aiPredict_(db, w, modelId, effortId) {
   const lastOf = {};
   (db.meals || []).filter(x => String(x.品名).trim()).forEach(x => { lastOf[String(x.食べた日) + x.参加者ID] = x; }); // 送り直しは最後の1件
   const meals = Object.keys(lastOf).map(k => lastOf[k]);
-  const monday = lv >= 1 ? meals.filter(x => x.週ID === w.週ID && x.曜日 === '月').map(x => String(x.品名).trim()) : [];
+  // 月曜に食べたもの：ホスト以外も投稿するので、今週の担当ホストがログインして投稿したものだけを使う
+  const monday = lv >= 1 && w.担当ホストID ? meals.filter(x => x.週ID === w.週ID && x.曜日 === '月' && x.参加者ID === w.担当ホストID).map(x => String(x.品名).trim()) : [];
   let hostFav = null;
   if (lv >= 2 && w.担当ホストID) {
     const cnt = {};

@@ -123,11 +123,13 @@ try {
   mr = sh('食事の記録').data;
   ok(r.ok && mr[2][6] === 'たろう' && mr[2][3] === '', 'ログインしていればその人。メニューにない品は枠なし', mr[2]);
   ok(!call('postLog', { name: '  ' }).ok, '空のメニュー名は断る');
+  // ホスト以外（ログインなし）の月曜の投稿は使わない
+  sh('食事の記録').data.push(['2026-11-09', '月', wk, 3, '餃子', '', '', '不明（ログインなし）', new Date()]);
   // 今週の月曜に麻婆豆腐を食べた → Wontonnet の考えた過程に出る
   sh('食事の記録').data.push(['2026-11-09', '月', wk, 1, '麻婆豆腐', hostId, 'てんちょう', 'ログインした人', new Date()]);
   setS('AI予想の無料期間（この日まで）', '2099-12-31');
   r = call('aiBuy', { token: g, weekId: wk, model: 'sonnet', effort: 'high' });
-  ok(r.ok && r.item.result.think.some(t => /月曜は「麻婆豆腐」/.test(t)), '月曜に食べたものを読む', r.item && r.item.result.think);
+  ok(r.ok && r.item.result.think.some(t => /月曜は「麻婆豆腐」/.test(t)) && !r.item.result.think.some(t => /餃子」を食べ/.test(t)), '月曜に担当ホストが食べたものだけを読む（ログインなしの投稿は使わない）', r.item && r.item.result.think);
   r = call('aiBuy', { token: g, weekId: wk, model: 'opus', effort: 'mid' });
   ok(r.ok && r.item.result.think.some(t => /担当ホストがこれまでにいちばん多く食べたのは「麻婆豆腐」/.test(t)), 'Octopus は担当ホストがよく食べるものを読む', r.item && r.item.result.think);
   setS('AI予想の無料期間（この日まで）', '');
