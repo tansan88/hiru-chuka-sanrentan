@@ -715,10 +715,14 @@
     const n = S.data && S.data.notice;
     if (!n || POST_MODE || S.screen || $layer.innerHTML || S.noticeShown === n.key) return;
     S.noticeShown = n.key;
-    openLayer(`<div class="scrim" data-close></div><div class="sheet" role="dialog" aria-label="お知らせ"><div class="grab"><span></span></div>
-      <div class="sh"><h2>お知らせ</h2><button class="xbtn" data-close aria-label="閉じる">✕</button></div>
-      <div class="ntc"><small>${noticeDate(n.date)}</small><b>${esc(n.title)}</b><p>${noticeBody(n.body)}</p></div>
-      <div style="padding:4px 16px 18px"><button class="btn green block" data-close>閉じる</button></div></div>`);
+    // ゲームのお知らせ窓のように、画面の真ん中に出す。本文が長いときは窓の中だけスクロールする
+    const kc = { 'アップデート': 'up', '重要': 'imp', 'お知らせ': 'info' }[n.kind] || 'etc';
+    openLayer(`<div class="scrim"></div><div class="nwin" role="dialog" aria-labelledby="nwt"><div class="in">
+      <div class="ttl">お知らせ</div>
+      <div class="meta">${n.kind ? `<span class="ntag ${kc}">${esc(n.kind)}</span>` : ''}<small>${noticeDate(n.date)}</small></div>
+      <h3 id="nwt">${esc(n.title)}</h3>
+      ${n.body ? `<div class="nbody">${noticeBody(n.body)}</div>` : ''}
+      <div class="foot"><button class="nclose" data-close>閉じる</button></div></div></div>`);
     api('noticeRead', { key: n.key }, { loading: false, quiet: true }).then(() => { if (S.data) S.data.notice = null; }).catch(() => {});
   }
   async function renderNotices() {

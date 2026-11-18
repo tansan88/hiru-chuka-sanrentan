@@ -44,7 +44,8 @@ ok(call('noticeRead', { token: a, key: 'unknown' }).ok && !call('state', { token
 // 行の並びを変えても既読はずれない／新しいお知らせを足したらまた出る
 const rows = ns.data.slice(1); ns.data = [ns.data[0]].concat(rows.reverse());
 ok(!call('state', { token: a }).notice, '並べ替えても既読のまま');
-ns.appendRow([day(0), 'お知らせ掲示板ができました', '']);
+ns.appendRow([day(0), 'お知らせ掲示板ができました', '', 'アップデート']);
 r = call('state', { token: a });
-ok(r.notice && r.notice.title === 'お知らせ掲示板ができました', '新しいものを足すとまた出る', r.notice);
+ok(r.notice && r.notice.title === 'お知らせ掲示板ができました' && r.notice.kind === 'アップデート', '新しいものを足すとまた出る（種類つき）', r.notice);
+ok(call('notices', { token: b }).list.find(n => n.title === '通知が使えるようになりました').kind === '', '種類が空なら空', null);
 console.log(`PASS ${pass} FAIL ${fail}`);

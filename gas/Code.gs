@@ -23,7 +23,7 @@ const SHEETS = {
   エラー: ['日時', '種類', '操作', '内容', '詳しい情報'],
   問い合わせ: ['日時', '参加者ID', 'ニックネーム', '種類', '内容', '対応メモ'],
   通知: ['登録日時', '参加者ID', 'ニックネーム', '送り先', 'p256dh', 'auth'],
-  お知らせ: ['日付', '見出し', '本文'],
+  お知らせ: ['日付', '見出し', '本文', '種類'],
   お知らせ既読: ['参加者ID', 'ニックネーム', '既読', '日時'],
 };
 // あとから増えたシート（無ければ自動で作る）
@@ -379,7 +379,10 @@ const API = {
   hostState(r) {
     const u = authHost_(r);
     // お知らせを書くシートが無ければ作っておく（ホストがシートに行を足して書く）
-    if (!findSheet_('お知らせ')) { try { sheet_('お知らせ'); } catch (e) {} }
+    try {
+      if (!findSheet_('お知らせ')) sheet_('お知らせ');
+      else { const h = findSheet_('お知らせ').getRange(1, 4); if (!h.getValue()) h.setValue('種類').setFontWeight('bold').setBackground('#E9F1EB'); } // あとから足した「種類」の列
+    } catch (e) {}
     const db = load_();
     const w = db.weeks.filter(x => x.状態 === '下書き' || x.状態 === '受付中').sort(byWeekDesc_)[0];
     const out = { odds: oddsTable_(), suggest: suggestNextWeek_(db), raceNames: raceNames_(db), rounds: {}, regulars: regulars_(), test: !!envSuffix_() };
@@ -1107,8 +1110,8 @@ function notices_() {
     const ds = Utilities.formatDate(d, tz, 'yyyy-MM-dd');
     if (ds > today) return null;
     const key = sha256_(asciiBytes_(unescape(encodeURIComponent(ds + '|' + title)))).slice(0, 6).map(b => ('0' + b.toString(16)).slice(-2)).join('');
-    return { key, date: ds, title, body: String(x.本文 || ''), _row: x._row };
-  }).filter(Boolean).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b._row - a._row)).map(n => ({ key: n.key, date: n.date, title: n.title, body: n.body }));
+    return { key, date: ds, title, body: String(x.本文 || ''), kind: String(x.種類 || '').trim().slice(0, 12), _row: x._row };
+  }).filter(Boolean).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b._row - a._row)).map(n => ({ key: n.key, date: n.date, title: n.title, body: n.body, kind: n.kind }));
 }
 function noticeSeen_(id) { const r = rowsAuto_('お知らせ既読').find(x => x.参加者ID === id); return r ? String(r.既読) : ''; }
 
