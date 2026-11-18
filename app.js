@@ -21,6 +21,18 @@
   const NO_API = !API_URL;
   // ?post を付けて開くと「Slackへの投稿をつくる」だけの画面（ログイン不要・アプリには何も記録しない）
   const POST_MODE = /[?&]post(=|&|$)/.test(location.search);
+  // ホーム画面に追加したときの名前とアイコン（PWA）。テスト環境（/test/）は名前とアイコンに「テスト」が付く
+  // アイコンは参加者が選べる（メニューの「アプリのアイコン」）。iPhone は追加した瞬間の apple-touch-icon を使うので、選べるのは追加する前だけ
+  const PWA_TEST = /\/test\//.test(location.pathname);
+  const ICONS = [['default', '既定'], ['light', 'ライト'], ['dark', 'ダーク'], ['longshadow', '長い影'], ['aqua', 'アクア'], ['glass', 'ガラス'], ['neon', 'ネオン'], ['neonblue', 'ネオン青'], ['terminal', 'ターミナル'], ['led', '電光掲示板'], ['yoichi', '夜市'], ['gold', '金の雷紋'], ['seika', '青花'], ['chochin', '提灯'], ['hisui', '翡翠']];
+  const IS_STANDALONE = window.navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+  const iconSrc = (id, size) => 'assets/pwa/icons/' + id + (PWA_TEST ? '-test' : '') + '-' + size + '.png';
+  (function () {
+    const head = document.head;
+    const link = (rel, href, id) => { const l = document.createElement('link'); l.rel = rel; l.href = href; if (id) l.id = id; head.appendChild(l); };
+    link('manifest', 'assets/pwa/manifest' + (POST_MODE ? '-post' : '') + (PWA_TEST ? '-test' : '') + '.webmanifest');
+    link('apple-touch-icon', iconSrc('default', 180), 'touchicon');
+  })();
   const HIRU_STAMP = ':hirucyuuka:';
   const OTHER_NAME = 'その他';
   // はずれの「×」は文字だと円の真ん中に来ないので、線で描く
@@ -33,8 +45,26 @@
     get(k) { try { return localStorage.getItem(store.key(k)); } catch (e) { return null; } },
     set(k, v) { try { v == null ? localStorage.removeItem(store.key(k)) : localStorage.setItem(store.key(k), v); } catch (e) {} },
   };
+  // 通知を受け取る仕組み（service worker）。テスト環境は /test/sw.js が /test/ だけを受け持つ（本番のものより範囲が狭いので優先される）
+  const PUSH_OK = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const SWP = ('serviceWorker' in navigator && !POST_MODE) ? navigator.serviceWorker.register('sw.js').catch(() => null) : Promise.resolve(null);
+  function iconId() { const v = store.get('pwa_icon'); return ICONS.some(x => x[0] === v) ? v : 'default'; }
+  function applyIcon() { const l = document.getElementById('touchicon'); if (l) l.href = iconSrc(iconId(), 180); }
+  applyIcon();
+
 
   const S = { post: { ph: null, name: '' }, dayOther: {}, token: store.get('hc_token'), data: null, tab: store.get('hc_tab') || 'yoso', screen: null, editing: false, picks: {}, bet: '', host: null, hp: null, redo: {}, photo: {}, sending: {}, view: null, hist: null, authMode: 'login' };
+  // 通知を押して開いたとき（?tab=yoso）は、今週の出馬表（予想タブ）を出す。URL からは消しておく
+  if (/[?&]tab=yoso(&|$)/.test(location.search)) {
+    S.tab = 'yoso'; store.set('hc_tab', 'yoso');
+    try { history.replaceState(null, '', location.pathname + location.search.replace(/([?&])tab=yoso(&|$)/, (m, a, b) => (b ? a : '')).replace(/[?&]$/, '')); } catch (e) {}
+  }
+  // アプリを開いたまま通知を押したときは、service worker から知らせが来る
+  if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => {
+    if (!e.data || e.data.type !== 'openYoso' || POST_MODE) return;
+    closeLayer(); S.screen = null; S.tab = 'yoso'; store.set('hc_tab', 'yoso');
+    if (S.data) refresh(); else render();
+  });
 
   // ---------- 画面で起きたエラーをサーバーに知らせる（1回の表示で3件まで・同じ内容は1回だけ） ----------
   const errSeen = {}; let errSent = 0;
@@ -116,7 +146,7 @@
         res = await send();
       }
       if (!res.ok) {
-        if (res.reload) { showReload(); const e = new Error(res.error || ''); e.silent = true; throw e; }
+        if (res.reload) { showReload(action); const e = new Error(res.error || ''); e.silent = true; throw e; }
         if (/ログインしてください$/.test(res.error || '')) { logout(true); }
         const se = new Error(res.error || 'うまくいきませんでした'); se.server = true; throw se;
       }
@@ -133,6 +163,7 @@
   async function refresh(opt) {
     S.data = await api('state', {}, opt);
     render();
+    maybeNotice();
   }
   function logout(silent) {
     S.token = null; store.set('hc_token', null); S.data = null; S.screen = null; S.authMode = 'login'; S.host = null; S.hp = null; closeLayer();
@@ -607,9 +638,18 @@
     $layer.querySelectorAll('[data-close]').forEach(b => b.onclick = closeLayer);
     document.addEventListener('keydown', escClose);
   }
-  // 画面が古いとき：選んでいた予想を残して、開き直してもらう（閉じるボタンは出さない）
-  function showReload() {
+  // 画面が古いとき：選んでいた予想を残して、自動で開き直す
+  // 開いたときの読み込みなど、利用者の操作でないときは黙って開き直す。操作の途中なら、開き直したあとに一言出す
+  // 30秒以内に2回目になったら（古いファイルが残っているなど）、開き直しが続かないよう案内を出して止める
+  const RELOAD_QUIET = ['state', 'hostState', 'history', 'week', 'postMenus', 'notices', 'pushKey'];
+  function showReload(action) {
     try { const v = S.data && S.data.current; if (v) sessionStorage.setItem(store.key('hc_draft'), JSON.stringify({ weekId: v.weekId, picks: S.picks, bet: S.bet })); } catch (e) {}
+    let last = 0;
+    try { last = Number(sessionStorage.getItem('hc_reload_at') || 0); } catch (e) {}
+    if (Date.now() - last > 30000) {
+      try { sessionStorage.setItem('hc_reload_at', String(Date.now())); if (RELOAD_QUIET.indexOf(action) < 0) sessionStorage.setItem('hc_reload_msg', '1'); } catch (e) {}
+      location.reload(); return;
+    }
     openLayer(`<div class="scrim"></div><div class="rl" role="alertdialog" aria-labelledby="rlt" aria-describedby="rld">
       ${chefImg('surprise', 'rl-chef')}
       <b id="rlt">アプリが新しくなりました</b>
@@ -626,7 +666,10 @@
       <div class="bar" style="position:static"><b style="font-size:15px">メニュー</b><button class="ibtn" data-close aria-label="閉じる" style="font-size:16px">✕</button></div>
       <div class="who">${esc(D.me.nick)}</div>
       <div class="bal"><span>持ち点</span><b>${fmt(D.me.balance)} <span style="font-size:13px">pt</span></b></div>
-      <nav class="mlist">${D.me.canRefill ? '<button data-m="refill" class="mrf">ptを補充する</button>' : ''}<span class="sec">記録</span><button data-m="history">過去の結果</button><button data-m="rule">ルール</button><button data-m="contact">問い合わせ</button><button data-m="post">Slackへの投稿をつくる</button>
+      <nav class="mlist">${D.me.canRefill ? '<button data-m="refill" class="mrf">ptを補充する</button>' : ''}<span class="sec">レース</span><button data-m="history">過去の結果</button><button data-m="rule">ルール</button>
+      <span class="sec" style="border-top:1px solid var(--line)">お知らせ・連絡</span><button data-m="notice">お知らせ</button><button data-m="contact">問い合わせ</button>
+      <span class="sec" style="border-top:1px solid var(--line)">つくる</span><button data-m="post">Slackへの投稿をつくる</button>
+      <span class="sec" style="border-top:1px solid var(--line)">アプリの設定</span><button data-m="notify">通知</button><button data-m="icon">アプリのアイコン</button>
       <span class="sec" style="border-top:1px solid var(--line)">アカウント</span><button data-m="nick">ニックネームを変える</button><button data-m="pass">パスワードを変える</button></nav>
       <div style="margin-top:auto;padding:16px"><button class="btn block" data-m="logout" style="border:1.5px solid var(--red);background:#FFF;color:var(--red);font-weight:700">ログアウト</button></div></aside>`);
     $layer.querySelectorAll('[data-m]').forEach(b => b.onclick = () => {
@@ -664,6 +707,75 @@
       </div></div></div>`);
   }
 
+  // ---------- お知らせ ----------
+  const noticeBody = t => esc(t).replace(/\n/g, '<br>');
+  const noticeDate = d => { const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? `${Number(m[1])}/${Number(m[2])}/${Number(m[3])}` : esc(d); };
+  // ログインしたとき、まだ読んでいない最新のお知らせを1件だけ出す（出した時点で既読にする）
+  function maybeNotice() {
+    const n = S.data && S.data.notice;
+    if (!n || POST_MODE || S.screen || $layer.innerHTML || S.noticeShown === n.key) return;
+    S.noticeShown = n.key;
+    // ゲームのお知らせ窓のように、画面の真ん中に出す。本文が長いときは窓の中だけスクロールする
+    const kc = { 'アップデート': 'up', '重要': 'imp', 'お知らせ': 'info' }[n.kind] || 'etc';
+    openLayer(`<div class="scrim"></div><div class="nwin" role="dialog" aria-labelledby="nwt"><div class="in">
+      <div class="ttl">お知らせ</div>
+      <div class="meta">${n.kind ? `<span class="ntag ${kc}">${esc(n.kind)}</span>` : ''}<small>${noticeDate(n.date)}</small></div>
+      <h3 id="nwt">${esc(n.title)}</h3>
+      ${n.body ? `<div class="nbody">${noticeBody(n.body)}</div>` : ''}
+      <div class="foot"><button class="nclose" data-close>閉じる</button></div></div></div>`);
+    api('noticeRead', { key: n.key }, { loading: false, quiet: true }).then(() => { if (S.data) S.data.notice = null; }).catch(() => {});
+  }
+  async function renderNotices() {
+    const show = html => { if (S.screen !== 'notice') return; $app.innerHTML = subBar('お知らせ') + html; document.getElementById('back').onclick = () => { S.screen = null; render(); }; };
+    show('<p style="padding:16px;color:var(--sub);margin:0">読み込み中…</p>');
+    let list = [];
+    try { list = (await api('notices', {}, { loading: false })).list || []; } catch (e) { return; }
+    // 一覧は「日付と見出し」の1行だけ。押すと本文が開き、もう一度押すと閉じる（最初はすべて閉じておく）
+    show(list.length ? `<div class="ntlist">${list.map(n => `<details class="ntd"><summary><small>${noticeDate(n.date)}</small><b>${esc(n.title)}</b></summary>${n.body ? `<p>${noticeBody(n.body)}</p>` : ''}</details>`).join('')}</div>` : '<p style="padding:16px;color:var(--sub);margin:0">お知らせはまだありません</p>');
+  }
+
+  // ---------- 通知（PWA） ----------
+  function noteBox(lead, rows) { return `<div class="icnote"><span class="lead">${lead}</span>${(rows || []).map(([h, t]) => `<span><b>${h}</b>${t}</span>`).join('')}</div>`; }
+  function b64uToU8(s) { s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; const b = atob(s); return Uint8Array.from(b, c => c.charCodeAt(0)); }
+  async function pushSub() { const reg = await SWP; return reg && reg.pushManager ? reg.pushManager.getSubscription() : null; }
+  async function renderNotify() {
+    const head = subBar('通知');
+    const show = html => { if (S.screen !== 'notify') return; $app.innerHTML = head + html; document.getElementById('back').onclick = () => { S.screen = null; render(); }; };
+    if (!PUSH_OK) return show(noteBox('通知は、ホーム画面に追加したアプリで受け取れます。', [['受け取るまで', 'ホーム画面に追加 → そのアイコンから開く → ここで「通知をオンにする」'], ['アイコン', '追加する前に、メニューの「アプリのアイコン」で選べます']]));
+    if (Notification.permission === 'denied') return show(noteBox('通知が「許可しない」になっています。', [['オンにするには', 'iPhoneの「設定」→「通知」→「' + (/\/test\//.test(location.pathname) ? '昼中華テスト' : '昼中華3連単') + '」で許可する']]));
+    let sub = null;
+    try { sub = await pushSub(); } catch (e) {}
+    const btns = inner => `<div style="padding:16px;display:flex;flex-direction:column;gap:10px">${inner}</div>`;
+    const outline = 'style="border:1.5px solid var(--turf);background:#FFF;color:var(--turf);font-weight:700"';
+    if (sub) {
+      show(noteBox('通知はオンです。', [['届くとき', '出馬表が公開されたとき']]) + btns(`<button class="btn green block" id="ptest">試しに送る</button><button class="btn block" id="poff" ${outline}>通知をやめる</button>`));
+      // サーバー側の送り先も最新にしておく（消えていたら登録し直す）
+      api('pushSubscribe', { sub: sub.toJSON() }, { loading: false, quiet: true }).catch(() => {});
+      document.getElementById('ptest').onclick = async () => { try { await api('pushTest', { endpoint: sub.endpoint }); toast('送りました。少し待つと届きます'); } catch (e) {} };
+      document.getElementById('poff').onclick = async () => {
+        try { await api('pushUnsubscribe', { sub: { endpoint: sub.endpoint } }); } catch (e) { return; }
+        try { await sub.unsubscribe(); } catch (e) {}
+        toast('通知をやめました'); renderNotify();
+      };
+      return;
+    }
+    show(noteBox('出馬表が公開されたら、この端末に通知が届きます。') + btns('<button class="btn green block" id="pon">通知をオンにする</button>'));
+    document.getElementById('pon').onclick = async () => {
+      // 許可を求めるのは、ボタンを押したその場でないといけない（iPhone の決まり）
+      let perm;
+      try { perm = await Notification.requestPermission(); } catch (e) { perm = 'default'; }
+      if (perm !== 'granted') return renderNotify();
+      try {
+        const k = await api('pushKey');
+        const reg = await SWP;
+        if (!reg) throw new Error('通知の準備ができませんでした。アプリを開き直してください');
+        const s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToU8(k.key) });
+        await api('pushSubscribe', { sub: s.toJSON() });
+        toast('通知をオンにしました'); renderNotify();
+      } catch (e) { if (!e.fromApi) toast(e.message || '通知をオンにできませんでした'); }
+    };
+  }
+
   // ---------- サブ画面 ----------
   function subBar(title) { return `<header class="bar" style="justify-content:flex-start"><button class="ibtn" id="back" aria-label="戻る" style="font-size:22px;padding-bottom:3px">‹</button><b class="sub-title">${title}</b></header>`; }
   async function openHistory() {
@@ -682,6 +794,21 @@
       $app.innerHTML = subBar('過去の結果') + resultView(S.view);
       document.getElementById('back').onclick = () => { S.screen = 'history'; render(); };
       bindResult(S.view); return;
+    }
+    if (sc === 'notify') { renderNotify(); return; }
+    if (sc === 'notice') { renderNotices(); return; }
+    if (sc === 'icon') {
+      const cur = iconId();
+      const note = IS_STANDALONE
+        ? '<span class="lead">ホーム画面から開いているので、ここでは変えられません。</span><span><b>変えるとき</b>ホーム画面のアイコンを消す → Safariで開いて選ぶ → 追加し直す</span>'
+        : '<span class="lead">選んだアイコンで、ホーム画面に追加されます。</span><span><b>追加のしかた</b>Safariの共有ボタン →「ホーム画面に追加」</span><span><b>変えるとき</b>ホーム画面のアイコンを消す → 選び直す → 追加し直す</span>';
+      $app.innerHTML = subBar('アプリのアイコン') + `<div class="icnote">${note}</div><div class="iclist">${ICONS.map(([id, name]) => `<button class="icrow${!IS_STANDALONE && id === cur ? ' on' : ''}" data-i="${id}" ${IS_STANDALONE ? 'disabled' : ''}><img src="${iconSrc(id, 180)}" alt="" width="52" height="52" loading="lazy"><span>${name}</span><i class="ck" aria-hidden="true"></i></button>`).join('')}</div>`;
+      document.getElementById('back').onclick = () => { S.screen = null; render(); };
+      $app.querySelectorAll('[data-i]').forEach(b => b.onclick = () => {
+        store.set('pwa_icon', b.dataset.i); applyIcon();
+        $app.querySelectorAll('.icrow').forEach(x => x.classList.toggle('on', x === b));
+      });
+      return;
     }
     if (sc === 'nick') {
       $app.innerHTML = subBar('ニックネームを変える') + `<form class="form" id="f"><div class="field"><span>今のニックネーム</span><span class="ro">${esc(S.data.me.nick)}</span></div><label class="field"><span>新しいニックネーム</span><input id="nn" maxlength="16" required></label><div class="err" id="er"></div><button class="btn green block">変更する</button></form>`;
@@ -1082,6 +1209,14 @@
 
   // ---------- 起動 ----------
   render();
+  try { if (sessionStorage.getItem('hc_reload_msg')) { sessionStorage.removeItem('hc_reload_msg'); setTimeout(() => toast('アプリが新しくなりました。直前の操作をもう一度お願いします'), 600); } } catch (e) {}
+  // しばらく閉じていたアプリに戻ってきたら、読み直す（画面が古ければここで自動で開き直る）
+  let hiddenAt = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { hiddenAt = Date.now(); return; }
+    if (hiddenAt && Date.now() - hiddenAt > 5 * 60000 && S.token && S.data && !POST_MODE && !S.editing && !S.screen && !$layer.innerHTML) refresh({ loading: false, quiet: true }).catch(() => {});
+    hiddenAt = 0;
+  });
   if (S.token && !POST_MODE) {
     if (S.tab === 'host') loadHost(true).then(() => { if (!S.data) refresh().catch(() => {}); });
     else refresh().then(() => { if (S.tab === 'kekka') maybeGong(S.data.lastResult); }).catch(() => {});

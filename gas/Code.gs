@@ -22,9 +22,12 @@ const SHEETS = {
   クイズ: ['ID', '問題', 'A', 'B', 'C', 'D', '正解', '解説', '出典1', '出典2', '使う'],
   エラー: ['日時', '種類', '操作', '内容', '詳しい情報'],
   問い合わせ: ['日時', '参加者ID', 'ニックネーム', '種類', '内容', '対応メモ'],
+  通知: ['登録日時', '参加者ID', 'ニックネーム', '送り先', 'p256dh', 'auth'],
+  お知らせ: ['日付', '見出し', '本文', '種類'],
+  お知らせ既読: ['参加者ID', 'ニックネーム', '既読', '日時'],
 };
 // あとから増えたシート（無ければ自動で作る）
-const AUTO_SHEETS = ['補充', 'レビュー', 'クイズ', 'エラー', '問い合わせ'];
+const AUTO_SHEETS = ['補充', 'レビュー', 'クイズ', 'エラー', '問い合わせ', '通知', 'お知らせ', 'お知らせ既読'];
 const CONTACT_KINDS = ['不具合', '質問', '要望', 'その他'];
 const DAYS = ['火', '水', '木'];
 const DEFAULT_SETTINGS = [
@@ -104,7 +107,7 @@ function doPost(e) {
   if (req.action !== 'clientError' && (Number(req.v) || 0) < MIN_APP_VERSION) return json_({ ok: false, reload: true, error: 'アプリが新しくなりました。画面を開き直してください' });
   // 読むだけの操作は順番待ちをしない（書き込みだけ1件ずつ処理する）
   // readMenu は文字認識に数秒かかるが、シートには書かないので順番待ちをしない
-  const readOnly = ['state', 'history', 'week', 'hostState', 'clientError', 'readMenu', 'postMenus'].indexOf(req.action) >= 0;
+  const readOnly = ['state', 'history', 'week', 'hostState', 'clientError', 'readMenu', 'postMenus', 'pushKey', 'notices'].indexOf(req.action) >= 0;
   const lock = readOnly ? null : LockService.getScriptLock();
   try {
     if (lock) lock.waitLock(20000);
@@ -131,6 +134,55 @@ function fail_(msg) { throw new UserError(msg); }
 function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 
 const API = {
+  // --- お知らせ ---
+  notices(r) { auth_(r); return { list: notices_().slice(0, 30) }; },
+  noticeRead(r) {
+    const u = auth_(r), key = String(r.key || '');
+    if (!notices_().some(n => n.key === key)) return {};
+    const cur = rowsAuto_('お知らせ既読').find(x => x.参加者ID === u.id);
+    const row = [u.id, txt_(u.nick), txt_(key), new Date()];
+    if (cur) sheet_('お知らせ既読').getRange(cur._row, 1, 1, row.length).setValues([row]);
+    else sheet_('お知らせ既読').appendRow(row);
+    return {};
+  },
+  // --- 通知（PWA） ---
+  pushKey(r) { auth_(r); return { key: vapidKeys_().pub }; },
+  pushSubscribe(r) {
+    const u = auth_(r);
+    const s = r.sub || {}, ep = String(s.endpoint || ''), k = s.keys || {};
+    if (!PUSH_HOSTS_.test(ep) || ep.length > 1000) fail_('通知の送り先が正しくありません');
+    const p256 = String(k.p256dh || ''), au = String(k.auth || '');
+    if (!/^[A-Za-z0-9_-]{40,200}$/.test(p256) || !/^[A-Za-z0-9_-]{8,100}$/.test(au)) fail_('通知の送り先が正しくありません');
+    const sh = sheet_('通知'), cur = rowsAuto_('通知');
+    const row = [new Date(), u.id, txt_(u.nick), txt_(ep), txt_(p256), txt_(au)];
+    const same = cur.find(x => String(x.送り先) === ep);
+    if (same) sh.getRange(same._row, 1, 1, row.length).setValues([row]);
+    else {
+      if (cur.filter(x => x.参加者ID === u.id).length >= 5) fail_('通知を受け取れる端末は1人5台までです');
+      sh.appendRow(row);
+    }
+    log_(u.id, u.nick, '通知', 'オン');
+    return {};
+  },
+  pushUnsubscribe(r) {
+    const u = auth_(r), ep = String((r.sub && r.sub.endpoint) || r.endpoint || '');
+    const rows = rowsAuto_('通知').filter(x => String(x.送り先) === ep && x.参加者ID === u.id).map(x => x._row);
+    if (rows.length) { deleteRows_('通知', rows); log_(u.id, u.nick, '通知', 'オフ'); }
+    return {};
+  },
+  // 自分の端末にだけ試しに送る（1分に5回まで）
+  pushTest(r) {
+    const u = auth_(r), ep = String(r.endpoint || '');
+    const rows = rowsAuto_('通知').filter(x => x.参加者ID === u.id && (!ep || String(x.送り先) === ep));
+    if (!rows.length) fail_('この端末の通知がオンになっていません');
+    const p = PropertiesService.getScriptProperties(), key = 'pushTest_' + u.id, now = Date.now();
+    const hist = String(p.getProperty(key) || '').split(',').map(Number).filter(t => t && now - t < 60000);
+    if (hist.length >= 5) fail_('試しに送れるのは1分に5回までです');
+    p.setProperty(key, hist.concat(now).join(','));
+    const res = sendPush_(rows);
+    if (!res.sent) fail_('送れませんでした。通知をいったんやめて、もう一度オンにしてください');
+    return { sent: res.sent };
+  },
   // --- アカウント ---
   register(r) {
     const nick = cleanNick_(r.nick);
@@ -200,6 +252,9 @@ const API = {
     const settled = db.weeks.filter(w => w.状態 === '確定' || w.状態 === '返還').sort(byWeekDesc_);
     if (settled[0]) out.lastResult = weekView_(settled[0], u, db, true);
     out.hasPrevResult = settled.length > 0;
+    // まだ読んでいない最新のお知らせ（ログインしたときに1件だけポップアップで出す）
+    const nl = notices_();
+    if (nl.length && noticeSeen_(u.id) !== nl[0].key) out.notice = nl[0];
     return out;
   },
   predict(r) {
@@ -323,6 +378,11 @@ const API = {
   },
   hostState(r) {
     const u = authHost_(r);
+    // お知らせを書くシートが無ければ作っておく（ホストがシートに行を足して書く）
+    try {
+      if (!findSheet_('お知らせ')) sheet_('お知らせ');
+      else { const h = findSheet_('お知らせ').getRange(1, 4); if (!h.getValue()) h.setValue('種類').setFontWeight('bold').setBackground('#E9F1EB'); } // あとから足した「種類」の列
+    } catch (e) {}
     const db = load_();
     const w = db.weeks.filter(x => x.状態 === '下書き' || x.状態 === '受付中').sort(byWeekDesc_)[0];
     const out = { odds: oddsTable_(), suggest: suggestNextWeek_(db), raceNames: raceNames_(db), rounds: {}, regulars: regulars_(), test: !!envSuffix_() };
@@ -383,6 +443,8 @@ const API = {
       if (rows.length) sheet_('メニュー').getRange(sheet_('メニュー').getLastRow() + 1, 1, rows.length, 5).setValues(rows);
     }
     log_(u.id, u.nick, r.publish ? '出馬表公開' : '下書き保存', raceName + ' ' + weekId);
+    // はじめて公開したときだけ、通知を受け取る人に知らせる（同じ週には1回まで）
+    if (r.publish && !published) pushWeekPublished_(weekId);
     return {};
   },
   // いつものメニュー（新しい週の出馬表の6・7番に自動で入る）
@@ -756,20 +818,23 @@ function resetCache_() { SS_ = null; SHEET_ = {}; ENV_ = null; SETTINGS_ = null;
 // よく使うシートを、Sheets API で1回の問い合わせでまとめて読んでおく（1枚ずつ読むと1枚0.2〜0.6秒かかる）
 // 使えないとき（Sheets API が無効など）は何もしない＝今までどおり1枚ずつ読む
 const PREFETCH_SHEETS = ['参加者', '週', 'メニュー', '結果', '予想', '獲得pt', '設定'];
-const DATE_HEADS_ = ['締切', '公開日時', '確定日時', '日時', '登録日時'];
+const PREFETCH_OPTIONAL_ = ['お知らせ', 'お知らせ既読'];
+const DATE_HEADS_ = ['締切', '公開日時', '確定日時', '日時', '登録日時', '日付'];
 function prefetch_() {
   const tp = Date.now();
   try {
     if (typeof Sheets === 'undefined' || !Sheets.Spreadsheets) return;
+    // お知らせのシートは、あるときだけ一緒に読む（無いシートを頼むと全部が失敗するため）
+    const names = PREFETCH_SHEETS.concat(PREFETCH_OPTIONAL_.filter(n => findSheet_(n)));
     const col = n => String.fromCharCode(64 + n);
     const res = Sheets.Spreadsheets.Values.batchGet(ss_().getId(), {
-      ranges: PREFETCH_SHEETS.map(n => "'" + n + "'!A1:" + col(SHEETS[n].length)),
+      ranges: names.map(n => "'" + n + "'!A1:" + col(SHEETS[n].length)),
       valueRenderOption: 'UNFORMATTED_VALUE', dateTimeRenderOption: 'SERIAL_NUMBER',
     });
     const vr = res && res.valueRanges;
-    if (!vr || vr.length !== PREFETCH_SHEETS.length) return;
+    if (!vr || vr.length !== names.length) return;
     const tz = ss_().getSpreadsheetTimeZone() || Session.getScriptTimeZone();
-    PREFETCH_SHEETS.forEach((n, k) => { ROWS_[n] = { raw: fromApi_(n, vr[k].values || [], tz) }; });
+    names.forEach((n, k) => { ROWS_[n] = { raw: fromApi_(n, vr[k].values || [], tz) }; });
     prof_('まとめ読み', tp);
   } catch (e) { ROWS_ = {}; prof_('まとめ読み失敗', tp); }
 }
@@ -1033,6 +1098,134 @@ function notifyError_(kind, action, message, force) {
   return true;
 }
 // 最初に1回だけエディタから実行して、メール送信を許可する（テストのメールが届きます）
+// ---------- お知らせ ----------
+// 「お知らせ」シートに 日付・見出し・本文 の行を足すと出る（新しい日付が上）。日付が先のものは、その日になるまで出さない
+// 見分けるための鍵は「日付＋見出し」から作る（行の並びを変えても既読がずれない）
+function notices_() {
+  const tz = Session.getScriptTimeZone(), today = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  return rowsAuto_('お知らせ').map(x => {
+    const d = x.日付 instanceof Date ? x.日付 : (x.日付 ? new Date(x.日付) : null);
+    const title = String(x.見出し || '').trim();
+    if (!d || isNaN(d) || !title) return null;
+    const ds = Utilities.formatDate(d, tz, 'yyyy-MM-dd');
+    if (ds > today) return null;
+    const key = sha256_(asciiBytes_(unescape(encodeURIComponent(ds + '|' + title)))).slice(0, 6).map(b => ('0' + b.toString(16)).slice(-2)).join('');
+    return { key, date: ds, title, body: String(x.本文 || ''), kind: String(x.種類 || '').trim().slice(0, 12), _row: x._row };
+  }).filter(Boolean).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b._row - a._row)).map(n => ({ key: n.key, date: n.date, title: n.title, body: n.body, kind: n.kind }));
+}
+function noticeSeen_(id) { const r = rowsAuto_('お知らせ既読').find(x => x.参加者ID === id); return r ? String(r.既読) : ''; }
+
+// ---------- 出馬表公開の通知（PWAのプッシュ通知） ----------
+// 本文なしで送る（本文の暗号化が要らない）。iPhone では service worker が決まった文を出す
+// 送り主の証明（VAPID）は ES256（P-256 の楕円曲線署名）。Apps Script に無いので、ここで計算する
+// 鍵は最初に使ったときに自動で作り、スクリプトのプロパティ（VAPID_PUBLIC・VAPID_PRIVATE）に保存する
+const PUSH_HOSTS_ = /^https:\/\/(web\.push\.apple\.com|fcm\.googleapis\.com|updates\.push\.services\.mozilla\.com|[a-z0-9.-]+\.notify\.windows\.com)\//;
+const PUSH_SUBJECT_ = 'https://tansan88.github.io/hiru-chuka-sanrentan/';
+const EC_ = (() => {
+  const P = BigInt('0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff');
+  const N = BigInt('0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551');
+  const A = P - BigInt(3);
+  const G = [BigInt('0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296'), BigInt('0x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5')];
+  const mod = (a, m) => { const r = a % m; return r < BigInt(0) ? r + m : r; };
+  const inv = (a, m) => { let [r0, r1] = [mod(a, m), m], [s0, s1] = [BigInt(1), BigInt(0)]; while (r1 !== BigInt(0)) { const q = r0 / r1; [r0, r1] = [r1, r0 - q * r1]; [s0, s1] = [s1, s0 - q * s1]; } return mod(s0, m); };
+  const add = (p1, p2) => {
+    if (!p1) return p2; if (!p2) return p1;
+    let l;
+    if (p1[0] === p2[0]) { if (mod(p1[1] + p2[1], P) === BigInt(0)) return null; l = mod((BigInt(3) * p1[0] * p1[0] + A) * inv(BigInt(2) * p1[1], P), P); }
+    else l = mod((p2[1] - p1[1]) * inv(p2[0] - p1[0], P), P);
+    const x = mod(l * l - p1[0] - p2[0], P);
+    return [x, mod(l * (p1[0] - x) - p1[1], P)];
+  };
+  const mul = (k, pt) => { let r = null, q = pt; while (k > BigInt(0)) { if (k & BigInt(1)) r = add(r, q); q = add(q, q); k >>= BigInt(1); } return r; };
+  return { P, N, G, mod, inv, mul };
+})();
+function bytesU_(a) { return Array.prototype.map.call(a, b => b & 255); }
+function bytesS_(a) { return a.map(b => (b > 127 ? b - 256 : b)); }
+function bigToBytes_(x) { const out = []; for (let i = 0; i < 32; i++) { out.unshift(Number(x & BigInt(255))); x >>= BigInt(8); } return out; }
+function bytesToBig_(a) { return a.reduce((x, b) => (x << BigInt(8)) + BigInt(b), BigInt(0)); }
+function asciiBytes_(s) { const out = []; for (let i = 0; i < s.length; i++) out.push(s.charCodeAt(i) & 255); return out; }
+function b64url_(bytes) { return Utilities.base64EncodeWebSafe(bytesS_(bytes)).replace(/=+$/, ''); }
+function b64urlDecode_(s) { s = String(s).replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; return bytesU_(Utilities.base64Decode(s)); }
+function sha256_(bytes) { return bytesU_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, bytesS_(bytes))); }
+function hmac_(key, bytes) { return bytesU_(Utilities.computeHmacSignature(Utilities.MacAlgorithm.HMAC_SHA_256, bytesS_(bytes), bytesS_(key))); }
+// ES256 の署名（k は RFC 6979 の決め方。乱数に頼らない）。戻り値は r と s を32バイトずつ並べた64バイト
+function es256Sign_(msgBytes, d) {
+  const E = EC_, h1 = sha256_(msgBytes), z = bytesToBig_(h1), x = bigToBytes_(d), hb = bigToBytes_(E.mod(z, E.N));
+  let V = new Array(32).fill(1), K = new Array(32).fill(0);
+  K = hmac_(K, V.concat([0], x, hb)); V = hmac_(K, V);
+  K = hmac_(K, V.concat([1], x, hb)); V = hmac_(K, V);
+  for (;;) {
+    V = hmac_(K, V);
+    const k = bytesToBig_(V);
+    if (k > BigInt(0) && k < E.N) {
+      const r = E.mod(E.mul(k, E.G)[0], E.N);
+      const s = E.mod(E.inv(k, E.N) * (z + r * d), E.N);
+      if (r !== BigInt(0) && s !== BigInt(0)) return bigToBytes_(r).concat(bigToBytes_(s));
+    }
+    K = hmac_(K, V.concat([0])); V = hmac_(K, V);
+  }
+}
+function vapidKeys_() {
+  const p = PropertiesService.getScriptProperties();
+  let pub = p.getProperty('VAPID_PUBLIC'), pri = p.getProperty('VAPID_PRIVATE');
+  if (!pub || !pri) {
+    const seed = asciiBytes_([Utilities.getUuid(), Utilities.getUuid(), Utilities.getUuid(), Date.now(), Math.random()].join('|'));
+    const d = EC_.mod(bytesToBig_(sha256_(seed)), EC_.N - BigInt(1)) + BigInt(1);
+    const Q = EC_.mul(d, EC_.G);
+    pub = b64url_([4].concat(bigToBytes_(Q[0]), bigToBytes_(Q[1])));
+    pri = b64url_(bigToBytes_(d));
+    p.setProperties({ VAPID_PUBLIC: pub, VAPID_PRIVATE: pri });
+  }
+  return { pub, d: bytesToBig_(b64urlDecode_(pri)) };
+}
+function vapidJwt_(aud, keys) {
+  const enc = o => b64url_(asciiBytes_(JSON.stringify(o)));
+  const input = enc({ typ: 'JWT', alg: 'ES256' }) + '.' + enc({ aud, exp: Math.floor(Date.now() / 1000) + 12 * 3600, sub: PUSH_SUBJECT_ });
+  return input + '.' + b64url_(es256Sign_(asciiBytes_(input), keys.d));
+}
+// 送り先へまとめて送る。届かなくなった送り先（404・410）は消す。戻り値は送れた数など
+function sendPush_(rows) {
+  if (!rows.length) return { sent: 0, removed: 0, failed: 0 };
+  const keys = vapidKeys_(), jwt = {};
+  const reqs = rows.map(x => {
+    const aud = String(x.送り先).match(/^https:\/\/[^/]+/)[0];
+    if (!jwt[aud]) jwt[aud] = vapidJwt_(aud, keys);
+    return { url: String(x.送り先), method: 'post', headers: { TTL: '86400', Urgency: 'high', Authorization: 'vapid t=' + jwt[aud] + ', k=' + keys.pub }, payload: '', muteHttpExceptions: true };
+  });
+  const res = UrlFetchApp.fetchAll(reqs);
+  let sent = 0, failed = 0; const gone = [], errs = [];
+  res.forEach((r, i) => {
+    const c = r.getResponseCode();
+    if (c >= 200 && c < 300) sent++;
+    else if (c === 404 || c === 410) gone.push(rows[i]._row);
+    else { failed++; errs.push(c + ' ' + String(r.getContentText() || '').slice(0, 120)); }
+  });
+  if (gone.length) deleteRows_('通知', gone);
+  if (errs.length) reportError_('通知', 'push', '通知を送れなかった送り先があります（' + errs.length + '件）', errs.join('\n'));
+  return { sent, removed: gone.length, failed };
+}
+// 出馬表を公開したときに呼ぶ。同じ週には1回だけ送る（直して出し直しても二重に届かない）
+function pushWeekPublished_(weekId) {
+  const p = PropertiesService.getScriptProperties(), key = 'push_' + weekId;
+  if (p.getProperty(key)) return null;
+  p.setProperty(key, new Date().toISOString());
+  try {
+    const r = sendPush_(rowsAuto_('通知'));
+    log_('', '', '通知', '出馬表公開 ' + weekId + '：' + r.sent + '件送信' + (r.removed ? '・' + r.removed + '件削除' : '') + (r.failed ? '・' + r.failed + '件失敗' : ''));
+    return r;
+  } catch (e) {
+    reportError_('通知', 'push', e && e.message || String(e), e && e.stack || '');
+    return null;
+  }
+}
+
+// はじめに1回だけ：Apps Script のエディタでこの関数を ▶実行して「外部へのアクセス」を許可する（通知を送るのに要る）
+// 鍵もここで作られる。実行ログに公開鍵が出れば準備完了
+function 通知の準備() {
+  const k = vapidKeys_();
+  UrlFetchApp.fetch('https://web.push.apple.com/', { muteHttpExceptions: true });
+  Logger.log('通知の準備ができました。公開鍵：' + k.pub);
+}
 function エラー通知のテスト() {
   const msg = 'これはテストです。このメールが届いていれば、エラー通知は使えます。';
   sheet_('エラー').appendRow([new Date(), 'テスト', '', msg, '関数「エラー通知のテスト」から記録（この行は消してかまいません）']);
