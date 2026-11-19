@@ -14,7 +14,8 @@ const SHEETS = {
   週: ['週ID', 'レース名', '回', '状態', '店長のつぶやき', '締切', '担当ホストID', '担当ホスト', '公開日時', '確定日時'],
   メニュー: ['週ID', '枠', '品名', '人気', 'オッズ', '確定オッズ'],
   結果: ['週ID', '曜日', '枠', '品名', '写真ID', '登録日時'],
-  予想: ['週ID', '参加者ID', 'ニックネーム', '火', '水', '木', '使うpt', '日時'],
+  // 1組＝1行（フォーメーション）。火・水・木は選んだ枠を「・」でつなぐ。使うpt＝その組の合計（点数×1点pt）。受付＝買った操作ごとの番号
+  予想: ['週ID', '参加者ID', 'ニックネーム', '火', '水', '木', '使うpt', '日時', '組', '1点pt', '由来', '受付'],
   獲得pt: ['週ID', '参加者ID', 'ニックネーム', '火', '水', '木', '3連単', '返還', '獲得計', '収支'],
   ログ: ['日時', '参加者ID', 'ニックネーム', '操作', '内容'],
   補充: ['日時', '参加者ID', 'ニックネーム', '方法', 'pt'],
@@ -303,6 +304,7 @@ const API = {
     if (nl.length && seen !== nl[0].key) { const i = nl.findIndex(n => n.key === seen); out.notice = Object.assign({}, nl[0], { more: (i < 0 ? nl.length : i) - 1 }); }
     return out;
   },
+  // 買う（フォーメーション）。sets: [{ picks: { 火: [枠…], 水: [...], 木: [...] }, bet: 1点のpt }]。古い形（picks に枠1つ）も受け付ける
   predict(r) {
     const u = auth_(r);
     const db = load_();
@@ -311,17 +313,53 @@ const API = {
     if (new Date() >= new Date(w.締切)) fail_('締切を過ぎました');
     if (w.担当ホストID === u.id) fail_('担当の週は予想できません');
     const menus = db.menus.filter(m => m.週ID === w.週ID);
-    const picks = DAYS.map(d => Number(r.picks && r.picks[d]));
-    picks.forEach(p => { if (!menus.some(m => Number(m.枠) === p)) fail_('火・水・木を1つずつ選んでください'); });
-    const bet = Number(r.bet);
-    if (!(bet >= 100) || bet % 100 !== 0) fail_('使うptは100pt単位で入れてください');
-    const prev = db.preds.find(p => p.週ID === w.週ID && p.参加者ID === u.id);
-    const balance = balance_(u, db) + (prev ? Number(prev.使うpt) : 0);
-    if (bet > balance) fail_('持ち点が足りません（使えるのは ' + balance.toLocaleString() + 'pt まで）');
-    const row = [txt_(w.週ID), u.id, txt_(u.nick), picks[0], picks[1], picks[2], bet, new Date()];
-    if (prev) sheet_('予想').getRange(prev._row, 1, 1, row.length).setValues([row]);
-    else sheet_('予想').appendRow(row);
-    log_(u.id, u.nick, prev ? '予想変更' : '予想', picks.join('-') + ' / ' + bet + 'pt');
+    const raw = Array.isArray(r.sets) ? r.sets : [{ picks: r.picks, bet: r.bet }];
+    if (!raw.length) fail_('買い目を選んでください');
+    if (raw.length > 20) fail_('一度に買えるのは20組までです');
+    const from = String(r.from || '');
+    if (from && !AI_MODELS.some(m => from === 'AI ' + m.name)) fail_('買い方が正しくありません');
+    const sets = raw.map(s => {
+      const picks = {};
+      DAYS.forEach(d => {
+        const v = s && s.picks ? s.picks[d] : null;
+        const list = (Array.isArray(v) ? v : [v]).map(Number).filter((n, i, a) => n && a.indexOf(n) === i);
+        if (!list.length || list.some(k => !menus.some(m => Number(m.枠) === k))) fail_('火・水・木をそれぞれ1つ以上選んでください');
+        picks[d] = list.sort((x, y) => x - y);
+      });
+      const per = Number(s && s.bet);
+      if (!(per >= 100) || per % 100 !== 0) fail_('1点あたりのptは100pt単位で入れてください');
+      const points = DAYS.reduce((a, d) => a * picks[d].length, 1);
+      return { picks, per, points, cost: per * points };
+    });
+    const total = sets.reduce((a, s) => a + s.cost, 0);
+    const balance = balance_(u, db);
+    if (total > balance) fail_('持ち点が足りません（使えるのは ' + balance.toLocaleString() + 'pt まで）');
+    ensurePredCols_();
+    const mine = db.preds.filter(p => p.週ID === w.週ID && p.参加者ID === u.id);
+    let setNo = mine.reduce((a, p) => Math.max(a, Number(p.組) || 1), 0);
+    // 受付番号は取り消しても戻らないように、使った最大の番号を覚えておく
+    const props = PropertiesService.getScriptProperties();
+    const no = Math.max(Number(props.getProperty('predNo') || 0), db.preds.reduce((a, p) => Math.max(a, Number(p.受付) || 0), 0)) + 1;
+    props.setProperty('predNo', String(no));
+    const now = new Date();
+    const cell = list => list.length === 1 ? list[0] : txt_(list.join('・'));
+    const rows = sets.map(s => [txt_(w.週ID), u.id, txt_(u.nick), cell(s.picks.火), cell(s.picks.水), cell(s.picks.木), s.cost, now, ++setNo, s.per, txt_(from), no]);
+    const sh = sheet_('予想');
+    sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+    log_(u.id, u.nick, '予想', 'No.' + no + ' ' + sets.map(s => DAYS.map(d => s.picks[d].join('・')).join('-') + '×' + s.per).join(' / ') + (from ? ' (' + from + ')' : ''));
+    return { no, sets: rows.map(x => x[8]), total };
+  },
+  // 買った組を取り消す（締切まで）
+  cancelPred(r) {
+    const u = auth_(r);
+    const db = load_();
+    const w = db.weeks.find(x => x.週ID === r.weekId);
+    if (!w || w.状態 !== '受付中') fail_('いまは取り消せません');
+    if (new Date() >= new Date(w.締切)) fail_('締切を過ぎたので取り消せません');
+    const p = db.preds.find(x => x.週ID === w.週ID && x.参加者ID === u.id && (Number(x.組) || 1) === Number(r.set));
+    if (!p) fail_('その組は見つかりません');
+    deleteRows_('予想', [p._row]);
+    log_(u.id, u.nick, '予想の取り消し', '組' + (Number(p.組) || 1) + ' ' + DAYS.map(d => String(p[d])).join('-') + ' / ' + p.使うpt + 'pt');
     return {};
   },
   history(r) {
@@ -329,7 +367,7 @@ const API = {
     const db = load_();
     const list = db.weeks.filter(w => (w.状態 === '確定' || w.状態 === '返還')).sort(byWeekDesc_).map(w => {
       const v = weekView_(w, u, db, true);
-      return { weekId: w.週ID, title: v.title, dates: v.dates, status: w.状態, marks: v.marks, net: v.settle ? v.settle.net : null, played: !!v.myPred };
+      return { weekId: w.週ID, title: v.title, dates: v.dates, status: w.状態, marks: v.marks, net: v.settle ? v.settle.net : null, played: v.myPreds.length > 0 };
     });
     return { list };
   },
@@ -441,7 +479,7 @@ const API = {
         menus: livePop_((o => db.menus.filter(m => m.週ID === w.週ID).sort((a, b) => a.人気 - b.人気).map(m => ({ waku: Number(m.枠), name: m.品名, pop: Number(m.人気), basePop: Number(m.人気), odds: o[Number(m.枠)], base: Number(m.オッズ) })))(oddsMap_(db, w))),
         oddsLive: new Date() < new Date(w.締切),
         results: resultsOf_(db, w.週ID),
-        predCount: db.preds.filter(p => p.週ID === w.週ID).length,
+        predCount: uniq_(db.preds.filter(p => p.週ID === w.週ID).map(p => p.参加者ID)).length,
         closed: new Date() >= new Date(w.締切),
       };
     }
@@ -609,15 +647,23 @@ const API = {
     const cancelled = DAYS.some(d => res[d] === 0);
     const odds = {};
     Object.assign(odds, oddsMap_(db, w));// 締切時点の投票で補正した倍率（締切後は予想が変わらないので、ここで確定）
-    const rows = db.preds.filter(p => p.週ID === w.週ID).map(p => {
-      const bet = Number(p.使うpt);
-      const pk = DAYS.map(d => Number(p[d]));
-      if (cancelled) return [txt_(w.週ID), p.参加者ID, txt_(String(p.ニックネーム)), 0, 0, 0, 0, bet, bet, 0];
-      const daily = DAYS.map((d, i) => pk[i] === res[d] ? Math.floor(bet / 3 * odds[pk[i]]) : 0);
-      const allHit = DAYS.every((d, i) => pk[i] === res[d]);
-      const triple = allHit ? Math.floor(bet * odds[pk[0]] * odds[pk[1]] * odds[pk[2]]) : 0;
-      const total = daily[0] + daily[1] + daily[2] + triple;
-      return [txt_(w.週ID), p.参加者ID, txt_(String(p.ニックネーム)), daily[0], daily[1], daily[2], triple, 0, total, total - bet];
+    // 1人1週1行にまとめる（組ごとの配当を足す）
+    const by = {};
+    db.preds.filter(p => p.週ID === w.週ID).forEach(p => {
+      const k = p.参加者ID;
+      if (!by[k]) by[k] = { id: k, nick: String(p.ニックネーム), cost: 0, d: [0, 0, 0], tri: 0 };
+      const s = predSet_(p), e = by[k];
+      e.cost += s.cost;
+      if (cancelled) return;
+      const pay = setPay_(s, res, odds);
+      DAYS.forEach((d, i) => e.d[i] += pay.daily[d]);
+      e.tri += pay.triple;
+    });
+    const rows = Object.keys(by).map(k => {
+      const e = by[k];
+      if (cancelled) return [txt_(w.週ID), e.id, txt_(e.nick), 0, 0, 0, 0, e.cost, e.cost, 0];
+      const total = e.d[0] + e.d[1] + e.d[2] + e.tri;
+      return [txt_(w.週ID), e.id, txt_(e.nick), e.d[0], e.d[1], e.d[2], e.tri, 0, total, total - e.cost];
     });
     deleteRows_('獲得pt', db.earn.filter(x => x.週ID === w.週ID).map(x => x._row));
     if (rows.length) sheet_('獲得pt').getRange(sheet_('獲得pt').getLastRow() + 1, 1, rows.length, 10).setValues(rows);
@@ -870,31 +916,45 @@ function weekView_(w, u, db, withSettle) {
   const menus = db.menus.filter(m => m.週ID === w.週ID).sort((a, b) => Number(a.枠) - Number(b.枠))
     .map(m => ({ waku: Number(m.枠), name: m.品名, pop: Number(m.人気), basePop: Number(m.人気), odds: 0, base: Number(m.オッズ) }));
   const om = oddsMap_(db, w); menus.forEach(m => m.odds = om[m.waku]); livePop_(menus);
-  const p = db.preds.find(x => x.週ID === w.週ID && x.参加者ID === u.id);
   const results = resultsOf_(db, w.週ID);
-  const myPred = p ? { picks: { 火: Number(p.火), 水: Number(p.水), 木: Number(p.木) }, bet: Number(p.使うpt), at: toIso_(p.日時) } : null;
+  const myPreds = db.preds.filter(x => x.週ID === w.週ID && x.参加者ID === u.id).map(predSet_).sort((a, b) => a.set - b.set)
+    .map(s => ({ set: s.set, picks: s.picks, bet: s.per, points: s.points, cost: s.cost, from: s.from, no: s.no, at: s.at }));
+  // 受付ごとのまとめ（上の電光に流す）
+  const receipts = [];
+  myPreds.forEach(s => { let r = receipts.find(x => x.no === s.no); if (!r) receipts.push(r = { no: s.no, sets: 0, points: 0, cost: 0, at: s.at }); r.sets++; r.points += s.points; r.cost += s.cost; });
   const marks = DAYS.map(d => {
     const rr = results[d];
     if (!rr) return 'wait';
     if (rr.waku === 0) return 'cancel';
-    if (!myPred) return 'none';
-    return myPred.picks[d] === rr.waku ? 'hit' : 'miss';
+    if (!myPreds.length) return 'none';
+    return myPreds.some(s => s.picks[d].indexOf(rr.waku) >= 0) ? 'hit' : 'miss';
   });
+  const myPred = myPreds[0] || null; // 古い画面のため（1組目）
   const v = {
     weekId: w.週ID, title: '第' + (w.回 || roundFor_(db, w.レース名, w.週ID)) + '回 ' + w.レース名, raceName: w.レース名,
     dates: datesLabel_(w.週ID), status: w.状態, mumble: w.店長のつぶやき || '', deadline: toIso_(w.締切),
     closed: new Date() >= new Date(w.締切), isMyHostWeek: w.担当ホストID === u.id, oddsLive: w.状態 === '受付中' && new Date() < new Date(w.締切),
-    menus, results, myPred, marks,
+    menus, results, myPred, myPreds, receipts, marks,
+    predCount: uniq_(db.preds.filter(x => x.週ID === w.週ID).map(x => x.参加者ID)).length,
   };
   // 締切のあとは「みんなの予想」を人数だけ返す（誰が何を選んだかは返さない）
   if (v.closed) {
     const crowd = {}; DAYS.forEach(d => crowd[d] = {});
-    db.preds.filter(x => x.週ID === w.週ID).forEach(x => DAYS.forEach(d => { const k = Number(x[d]); if (k) crowd[d][k] = (crowd[d][k] || 0) + 1; }));
+    // 1人がその日にその品を含めていれば1人と数える（組の数ではなく人数）
+    const seen = {};
+    db.preds.filter(x => x.週ID === w.週ID).forEach(x => DAYS.forEach(d => pkList_(x[d]).forEach(k => {
+      const key = d + k + '/' + x.参加者ID; if (seen[key]) return; seen[key] = 1; crowd[d][k] = (crowd[d][k] || 0) + 1;
+    })));
     v.crowd = crowd;
   }
   if (withSettle) {
     const e = db.earn.find(x => x.週ID === w.週ID && x.参加者ID === u.id);
     if (e) v.settle = { daily: { 火: Number(e.火), 水: Number(e.水), 木: Number(e.木) }, triple: Number(e['3連単']), refund: Number(e.返還), total: Number(e.獲得計), net: Number(e.収支) };
+    // 組ごとの配当（過去の結果で「3連単的中／日替わりだけ当たり／外れ」に分ける）
+    if (w.状態 === '確定') {
+      const res = {}; DAYS.forEach(d => { if (results[d]) res[d] = results[d].waku; });
+      myPreds.forEach(s => { const pay = setPay_({ picks: s.picks, per: s.bet, points: s.points }, res, om); s.got = DAYS.reduce((a, d) => a + pay.daily[d], 0) + pay.triple; s.triple = pay.triple > 0; });
+    }
   }
   return v;
 }
@@ -1032,9 +1092,10 @@ function oddsMap_(db, w) {
     menus.forEach(m => out[Number(m.枠)] = Number(has ? m.確定オッズ : m.オッズ)); return out;
   }
   const wt = {}; menus.forEach(m => wt[Number(m.枠)] = 0);
+  // 1組の使ったptを、火・水・木に1/3ずつ。その日に選んだ品が複数なら、その中で等分する
   db.preds.filter(p => p.週ID === w.週ID).forEach(p => {
     const share = Number(p.使うpt || 0) / 3;
-    DAYS.forEach(d => { const k = Number(p[d]); if (k in wt) wt[k] += share; });
+    DAYS.forEach(d => { const ks = pkList_(p[d]); ks.forEach(k => { if (k in wt) wt[k] += share / ks.length; }); });
   });
   const total = Object.keys(wt).reduce((a, k) => a + wt[k], 0);
   const avg = menus.length ? total / menus.length : 0;
@@ -1057,6 +1118,36 @@ function livePop_(menus) {
 function oddsFor_(pop) {
   if (pop <= 8) return Number(getSetting_('オッズ' + pop));
   return Number(getSetting_('オッズ8')) + (pop - 8) * Number(getSetting_('9番人気以降の増分') || 4);
+}
+// ===== 複数券（フォーメーション）の計算 =====
+function pkList_(v) { return String(v === undefined || v === null ? '' : v).split(/[・,、]/).map(Number).filter(n => n > 0); }
+function uniq_(a) { return a.filter((x, i) => a.indexOf(x) === i); }
+// 予想シートの1行 → 1組（古い行は1点・使うpt＝1点のpt）
+function predSet_(p) {
+  const picks = {}; DAYS.forEach(d => picks[d] = pkList_(p[d]));
+  const points = DAYS.reduce((a, d) => a * picks[d].length, 1);
+  const cost = Number(p.使うpt) || 0;
+  const per = Number(p['1点pt']) || (points ? cost / points : 0);
+  return { picks, points, per, cost, set: Number(p.組) || 1, from: String(p.由来 || ''), no: Number(p.受付) || 0, at: toIso_(p.日時) };
+}
+// 1組の配当。日替わりは1点ごと（当たった日の品を含む点の数だけ）、3連単は3日とも含むときの1点だけ
+function setPay_(s, res, odds) {
+  const n = d => s.picks[d].length;
+  const daily = {}; let all = true;
+  DAYS.forEach(d => {
+    const hit = res[d] && s.picks[d].indexOf(res[d]) >= 0;
+    if (!hit) all = false;
+    daily[d] = hit ? Math.floor(s.per / 3 * odds[res[d]]) * DAYS.filter(x => x !== d).reduce((a, x) => a * n(x), 1) : 0;
+  });
+  const triple = all ? Math.floor(s.per * odds[res.火] * odds[res.水] * odds[res.木]) : 0;
+  return { daily, triple };
+}
+// 予想シートに後から足した列（組・1点pt・由来・受付）の見出しを入れる
+function ensurePredCols_() {
+  const sh = sheet_('予想');
+  const want = SHEETS['予想'].slice(8);
+  const have = sh.getRange(1, 9, 1, want.length).getValues()[0];
+  if (have.join('|') !== want.join('|')) sh.getRange(1, 9, 1, want.length).setValues([want]).setFontWeight('bold').setBackground('#E9F1EB');
 }
 function byWeekDesc_(a, b) { return a.週ID < b.週ID ? 1 : a.週ID > b.週ID ? -1 : 0; }
 
