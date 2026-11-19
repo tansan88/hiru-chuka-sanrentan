@@ -196,6 +196,15 @@ jobs:
           fi
           exit 1
 
+      - name: テスト環境の Gemini の確認（キー・使えるモデル。失敗しても止めない）
+        if: steps.deploy.outcome == 'success' && steps.check.outputs.target == 'test'
+        continue-on-error: true
+        run: |
+          URL="https://script.google.com/macros/s/${{ steps.deploy.outputs.did }}/exec?check=gemini"
+          BODY=$(curl -sL -m 60 "$URL" || true)
+          echo "$BODY" | head -c 1500
+          { echo '### Gemini の確認'; echo '```'; echo "$BODY" | jq . 2>/dev/null || echo "$BODY" | head -c 1500; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       - name: テスト環境で一通り操作してみる（登録・ログイン・画面の読み込み・権限）
         if: steps.deploy.outcome == 'success' && steps.check.outputs.target == 'test'
         run: |

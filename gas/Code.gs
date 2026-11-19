@@ -100,6 +100,8 @@ function doGet(e) {
     try { const at = lastBackupAt_(); h.lastBackupAt = at ? at.toISOString() : null; } catch (err) { h.lastBackupAt = null; h.backupError = String(err && err.message || err).slice(0, 200); }
     return json_(h);
   }
+  // ?check=gemini … テスト環境だけ。Gemini のキーが使えるかと、使えるモデルを確かめる（結果は10分覚えておく）
+  if (e && e.parameter && e.parameter.check === 'gemini' && envSuffix_()) return json_(geminiCheck_());
   return json_({ ok: true, app: '昼中華3連単' });
 }
 
@@ -1682,3 +1684,36 @@ const QUIZ_SEED = [
   [99, "魚の浮き袋を干した高級食材は？", "花膠", "燕窩", "干貝", "海参", "A", "魚の浮き袋を干したものは「花膠」と呼ばれ、とろみのある食感です。", "https://guide.michelin.com/hk/zh_HK/article/features/ingredients_fish_maw", "https://www.shibatashoten.co.jp/content/pdf/00610100.pdf"],
   [100, "「乾焼蝦仁」を日本人向けにアレンジして生まれたとされる料理は？", "エビチリ", "エビマヨ", "エビ天", "エビシュウマイ", "A", "陳建民が四川の乾焼蝦仁をケチャップを使ってアレンジしたのが、エビチリの始まりとされています。", "https://agora-web.jp/?p=8748", "https://www.justonecookbook.com/?p=34365"]
 ];
+
+
+// ---------- Gemini（AI予想の会話で使う予定。いまは確かめるだけ） ----------
+const GEMINI_BASE_ = 'https://generativelanguage.googleapis.com/v1beta/';
+function geminiKey_() { return PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || ''; }
+function geminiCheck_() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('geminiCheck');
+  if (hit) return Object.assign(JSON.parse(hit), { cached: true });
+  const key = geminiKey_();
+  const out = { ok: true, keySet: !!key };
+  if (!key) return out;
+  try {
+    const r = UrlFetchApp.fetch(GEMINI_BASE_ + 'models?pageSize=200', { headers: { 'x-goog-api-key': key }, muteHttpExceptions: true });
+    out.listStatus = r.getResponseCode();
+    const ms = (JSON.parse(r.getContentText()).models || []).filter(m => (m.supportedGenerationMethods || []).indexOf('generateContent') >= 0).map(m => m.name.replace('models/', ''));
+    out.models = ms.filter(n => /flash/.test(n));
+    const pick = ms.filter(n => /flash-lite/.test(n) && !/preview|exp|tts|image|live|audio/.test(n)).sort().pop();
+    out.try = pick || '';
+    if (pick) {
+      const g = UrlFetchApp.fetch(GEMINI_BASE_ + 'models/' + pick + ':generateContent', {
+        method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': key }, muteHttpExceptions: true,
+        payload: JSON.stringify({ contents: [{ parts: [{ text: '「OK」とだけ返してください' }] }] }),
+      });
+      out.genStatus = g.getResponseCode();
+      const b = JSON.parse(g.getContentText());
+      if (b.error) out.genError = String(b.error.message || '').slice(0, 300);
+      else { out.text = ((((b.candidates || [])[0] || {}).content || {}).parts || []).map(x => x.text).join('').slice(0, 50); out.usage = b.usageMetadata || null; }
+    }
+  } catch (err) { out.ok = false; out.error = String(err && err.message || err).slice(0, 300); }
+  cache.put('geminiCheck', JSON.stringify(out), 600);
+  return out;
+}
