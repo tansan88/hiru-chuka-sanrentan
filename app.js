@@ -862,7 +862,7 @@
     const stars = res.conf ? `<div class="ai-conf"><span>自信度</span><b>${'★'.repeat(res.conf.stars)}<i>${'★'.repeat(3 - res.conf.stars)}</i></b><small>200通りの読み直しで◎が1位だった割合 ${res.conf.pct}%</small></div>` : '';
     const lines = res.think.map((t, i) => `<li${opt.reveal ? ` style="animation-delay:${i * 0.35}s"` : ''}>${esc(t)}</li>`).join('');
     return `<article class="ai-item${opt.reveal ? ' reveal' : ''}" id="ai-${it.model}-${it.effort}">
-      <div class="ai-meta">${aiMark(false)}<b>${esc(aiName(it.model))}</b><span>エフォート ${esc(aiEff(it.effort))}</span><span class="pt">${it.pt ? fmt(it.pt) + 'pt' : '無料'}</span></div>
+      <div class="ai-meta">${aiMark(false)}<b>${esc(aiName(it.model))}</b><span>エフォート ${esc(aiEff(it.effort))}</span>${it.pt ? `<span class="pt">${fmt(it.pt)}pt</span>` : ''}</div>
       <details class="ai-think"${opt.open ? ' open' : ''}><summary>考えた過程</summary><ol>${lines}</ol></details>
       <div class="ai-ans"${opt.reveal ? ` style="animation-delay:${res.think.length * 0.35 + 0.2}s"` : ''}>${aiDays(res)}${aiBuys(res)}${stars}<p class="ai-foot">データから読んだ予想です。外れても恨みっこなし。</p></div>
     </article>`;
