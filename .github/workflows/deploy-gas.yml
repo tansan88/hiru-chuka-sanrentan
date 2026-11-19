@@ -201,7 +201,7 @@ jobs:
         continue-on-error: true
         run: |
           URL="https://script.google.com/macros/s/${{ steps.deploy.outputs.did }}/exec?check=gemini"
-          BODY=$(curl -sL -m 60 "$URL" || true)
+          BODY=$(curl -sL -m 240 "$URL" || true)
           echo "$BODY" | head -c 1500
           { echo '### Gemini の確認'; echo '```'; echo "$BODY" | jq . 2>/dev/null || echo "$BODY" | head -c 1500; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 

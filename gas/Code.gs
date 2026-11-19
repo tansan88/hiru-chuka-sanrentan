@@ -1703,13 +1703,14 @@ function geminiCheck_() {
     out.models = ms.filter(n => /flash/.test(n));
     // 混んでいると 503 が返るので、候補を順に試す
     out.tries = [];
-    ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-2.5-flash-lite'].filter(n => ms.indexOf(n) >= 0).forEach(n => {
+    ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'].filter(n => ms.indexOf(n) >= 0).forEach(n => {
+      const t0 = Date.now();
       const g = UrlFetchApp.fetch(GEMINI_BASE_ + 'models/' + n + ':generateContent', {
         method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': key }, muteHttpExceptions: true,
         payload: JSON.stringify({ contents: [{ parts: [{ text: '「OK」とだけ返してください' }] }] }),
       });
       const b = JSON.parse(g.getContentText());
-      const t = { model: n, status: g.getResponseCode() };
+      const t = { model: n, status: g.getResponseCode(), ms: Date.now() - t0 };
       if (b.error) t.error = String(b.error.message || '').slice(0, 200);
       else { t.text = ((((b.candidates || [])[0] || {}).content || {}).parts || []).map(x => x.text).join('').slice(0, 30); t.usage = b.usageMetadata || null; }
       out.tries.push(t);
