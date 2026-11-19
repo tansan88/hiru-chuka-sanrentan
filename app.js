@@ -14,7 +14,7 @@
   const $layer = document.getElementById('layer');
   if (/[?&]env=test(&|$)/.test(location.search) || /\/test\//.test(location.pathname)) document.body.insertAdjacentHTML('beforeend', '<div class="envtag" aria-hidden="true">テスト環境</div>');
   // 画面の版。サーバーの MIN_APP_VERSION より小さいと「開き直してください」になる
-  const APP_VERSION = 2;
+  const APP_VERSION = 3;
   // /test/ で開いたとき、または ?env=test を付けたときはテスト環境につなぐ
   const ENV_TEST = /\/test\//.test(location.pathname) || /[?&]env=test(&|$)/.test(location.search);
   const API_URL = window.CONFIG ? (ENV_TEST ? CONFIG.API_URL_TEST : CONFIG.API_URL) || '' : '';
@@ -54,7 +54,7 @@
   applyIcon();
 
 
-  const S = { post: { ph: null, name: '' }, dayOther: {}, token: store.get('hc_token'), data: null, tab: store.get('hc_tab') || 'yoso', screen: null, editing: false, picks: {}, bet: '', host: null, hp: null, redo: {}, photo: {}, sending: {}, view: null, hist: null, authMode: 'login' };
+  const S = { post: { ph: null, name: '' }, dayOther: {}, token: store.get('hc_token'), data: null, tab: store.get('hc_tab') || 'yoso', screen: null, editing: false, sel: { 火: [], 水: [], 木: [] }, bet: '', host: null, hp: null, redo: {}, photo: {}, sending: {}, view: null, hist: null, authMode: 'login' };
   // 通知を押して開いたとき（?tab=yoso）は、今週の出馬表（予想タブ）を出す。URL からは消しておく
   if (/[?&]tab=yoso(&|$)/.test(location.search)) {
     S.tab = 'yoso'; store.set('hc_tab', 'yoso');
@@ -100,13 +100,7 @@
     const d = new Date(iso); if (isNaN(d)) return '';
     return '締切 ' + '日月火水木金土'[d.getDay()] + ' ' + d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
   }
-  function calcReturn(menus, picks, bet) {
-    const od = DAYS.map(d => { const m = menus.find(x => x.waku === picks[d]); return m ? m.odds : 0; });
-    if (od.some(x => !x) || !(bet > 0)) return { mul: 0, all: 0, daily: [0, 0, 0] };
-    const daily = od.map(o => Math.floor(bet / 3 * o));
-    const triple = Math.floor(bet * od[0] * od[1] * od[2]);
-    return { mul: od[0] * od[1] * od[2], all: daily[0] + daily[1] + daily[2] + triple, daily };
-  }
+
 
   // ---------- 通信 ----------
   let loadingTimer = null, stopWok = null, loadingCount = 0;
@@ -130,7 +124,8 @@
   }
   // 通信が切れたとき、自動でもう1回だけ送ってよい操作（2回届いても結果が同じになるもの）
   // iPhone は、カメラや Slack から戻った直後の1回目の通信が失敗しやすい
-  const RETRY_OK = ['state', 'history', 'week', 'hostState', 'predict', 'saveWeek', 'registerDay', 'saveRegulars', 'testCloseNow', 'readMenu', 'quizStart', 'postMenus'];
+  // 買う（predict）は2回届くと2組になるので、自動では送り直さない
+  const RETRY_OK = ['state', 'history', 'week', 'hostState', 'saveWeek', 'registerDay', 'saveRegulars', 'testCloseNow', 'readMenu', 'quizStart', 'postMenus'];
   const isNetErr = e => !e || !e.message || /Failed to fetch|NetworkError|Load failed|network connection was lost|JSON|Unexpected/i.test(e.message);
   async function api(action, body, opt) {
     opt = opt || {};
@@ -192,6 +187,11 @@
     if (S.tab === 'yoso') bindYoso();
     if (S.tab === 'kekka') bindResult(D.lastResult);
     if (S.tab === 'host') bindHost();
+    stickTop();
+  }
+  // 上の電光を、見出しとタブのすぐ下に止める（iPhone の上の余白で高さが変わるので測る）
+  function stickTop() {
+    requestAnimationFrame(() => { const b = $app.querySelector('.bar'), t = $app.querySelector('.tabs'); document.documentElement.style.setProperty('--stick', ((b ? b.offsetHeight : 52) + (t ? t.offsetHeight : 0)) + 'px'); });
   }
   function header() {
     const b = S.data.me.balance;
@@ -249,13 +249,88 @@
     };
   }
 
-  // ---------- 予想タブ ----------
-  function raceHead(v, pill) {
-    return `<div class="race"><div class="row"><h1>${esc(v.title)}</h1>${pill || ''}</div><span class="when">${esc(v.dates)}${v.closed ? '・受付は締め切りました' : '・<em>' + deadlineLabel(v.deadline) + '</em>'}</span></div>`;
+  // ---------- 予想タブ（複数券：フォーメーション） ----------
+  // 見出しの右の「受付中」「開催中」の札は出さない（状態は上の電光で分かる）
+  function raceHead(v) {
+    return `<div class="race"><div class="row"><h1>${esc(v.title)}</h1></div><span class="when">${esc(v.dates)}${v.closed ? '・受付は締め切りました' : '・<em>' + deadlineLabel(v.deadline) + '</em>'}</span></div>`;
   }
-  function mumble(v) {
-    if (!v.mumble) return '';
-    return `<div class="mumble">${CHEF}<div><small>店長のつぶやき</small><span>${esc(v.mumble)}</span></div></div>`;
+  // 1組の点数・配当（日替わりは1点ごと、3連単は3日とも含むときの1点）
+  const ptsOf = p => DAYS.reduce((a, d) => a * (p[d] || []).length, 1);
+  function oddsOf(v, w) { const m = v.menus.find(x => x.waku === w); return m ? m.odds : 0; }
+  function setPay(v, s, res) {
+    const n = d => s.picks[d].length;
+    let day = 0, all = true;
+    DAYS.forEach(d => {
+      const hit = res[d] && s.picks[d].indexOf(res[d]) >= 0;
+      if (!hit) { all = false; return; }
+      day += Math.floor(s.bet / 3 * oddsOf(v, res[d])) * DAYS.filter(x => x !== d).reduce((a, x) => a * n(x), 1);
+    });
+    const tri = all ? Math.floor(s.bet * oddsOf(v, res.火) * oddsOf(v, res.水) * oddsOf(v, res.木)) : 0;
+    return { day, tri, all: day + tri };
+  }
+  // まだ決まっていない日をすべて試して、いちばん多く戻る場合（当たれば最大）
+  function maxPay(v, sets, known) {
+    const ws = v.menus.map(m => m.waku);
+    let best = 0;
+    const cand = d => known[d] ? [known[d]] : ws;
+    cand('火').forEach(a => cand('水').forEach(b => cand('木').forEach(c => {
+      const r = { 火: a, 水: b, 木: c }, val = sets.reduce((s, x) => s + setPay(v, x, r).all, 0);
+      if (val > best) best = val;
+    })));
+    return best;
+  }
+  // 3連単がまだ生きている点数
+  function alivePts(sets, res) {
+    return sets.reduce((a, s) => DAYS.some(d => res[d] && s.picks[d].indexOf(res[d]) < 0) ? a : a + DAYS.reduce((m, d) => m * (res[d] ? 1 : s.picks[d].length), 1), 0);
+  }
+  function knownRes(v) { const r = {}; DAYS.forEach(d => { if (v.results[d] && v.results[d].waku) r[d] = v.results[d].waku; }); return r; }
+  function totalsOf(sets) { return { sets: sets.length, p: sets.reduce((a, s) => a + s.points, 0), c: sets.reduce((a, s) => a + s.cost, 0) }; }
+  function remainLabel(iso) {
+    const ms = new Date(iso) - Date.now(); if (!(ms > 0)) return 'まもなく';
+    const h = Math.floor(ms / 3600e3), d = Math.floor(h / 24);
+    return d ? `あと${d}日と${h % 24}時間` : h ? `あと${h}時間` : `あと${Math.max(1, Math.round(ms / 60e3))}分`;
+  }
+  // 組のカード（あなたの買い目）
+  function setCard(v, s, opt) {
+    opt = opt || {};
+    const res = opt.res || {};
+    const name = w => (v.menus.find(x => x.waku === w) || {}).name || '';
+    const rows = DAYS.map(d => `<div class="fc-rw"><em>${d}</em><span class="fc-its">${s.picks[d].map(w => `<span class="fc-it ${res[d] ? (res[d] === w ? 'h' : 'm') : ''}">${waku(w)}${esc(name(w))}</span>`).join('')}</span></div>`).join('');
+    const right = opt.del ? `<button class="fc-del" data-del="${s.set}">取り消す</button>` : (opt.badge || '<span></span>');
+    const tag = s.from ? `<span class="fc-tag">${esc(s.from)}</span>` : '';
+    const sum = opt.ret !== undefined ? `<span>使った ${fmt(s.cost)}pt → <b class="${opt.ret > 0 ? 'plus' : ''}">${opt.ret > 0 ? '+' + fmt(opt.ret) : '0'}pt</b></span>` : `<b>${fmt(s.cost)}pt</b>`;
+    return `<div class="fc-set${opt.glow ? ' just' : ''}"><div class="fc-rows">${rows}</div>${right}<div class="fc-sum"><span>${s.points}点 × ${fmt(s.bet)}pt${tag}</span>${sum}</div></div>`;
+  }
+  // 上の電光（予想タブ・AI予想の画面）。買う前は4つの話題を札ごと流し、買ったあとは受付を流し続ける
+  function buyLed(v) {
+    const rc = v.receipts || [];
+    const isNew = S.newAt && Date.now() - S.newAt < 2500;
+    if (!rc.length) {
+      const items = [];
+      if (v.mumble) items.push(['店長のつぶやき', v.mumble]);
+      const lr = S.data.lastResult;
+      if (lr) {
+        const r = lr.results || {};
+        if (lr.status === '返還') items.push(['先週の結果', '中止の日があったため返還']);
+        else if (DAYS.every(d => r[d])) {
+          const mul = DAYS.reduce((a, d) => a * (lr.menus.find(m => m.waku === r[d].waku) || { odds: 0 }).odds, 1);
+          items.push(['先週の結果', DAYS.map(d => r[d].name).join(' → ') + '　3連単 ' + oddsTxt(mul) + '倍']);
+        }
+      }
+      items.push(['予想済み', `いま ${v.predCount || 0}人が予想しています`]);
+      items.push(['締切まで', `${remainLabel(v.deadline)}（${deadlineLabel(v.deadline).replace('締切 ', '')}）`]);
+      const seq = items.map(([l, t]) => `<b class="tg">${esc(l)}</b>${esc(t)}　　　　`).join('');
+      const n = items.reduce((a, [l, t]) => a + l.length + t.length + 4, 0);
+      return `<div class="ledC idle" role="status" aria-label="${esc(items.map(x => x.join(' ')).join('　'))}"><span class="mq"><span style="animation-duration:${(n * .3).toFixed(1)}s">${seq}${seq}</span></span></div>`;
+    }
+    const txt = rc.slice().sort((a, b) => b.no - a.no).map(r => `No.${String(r.no).padStart(4, '0')}　${r.sets}組・${r.points}点　${fmt(r.cost)}pt`).join('　／　') + '　／　締切まで ' + remainLabel(v.deadline);
+    const m = txt + '　　　　';
+    return `<div class="ledC" role="status" aria-label="${esc(txt)}"><span class="l${isNew ? ' grn' : ''}">${isNew ? '受付' : '受付済'}</span><span class="mq"><span style="animation-duration:${Math.max(8, m.length * .32).toFixed(1)}s">${m}${m}</span></span></div>`;
+  }
+  function afterBuyLed() {
+    // 札は緑の「受付」で数回点滅したあと「受付済」に戻る
+    clearTimeout(afterBuyLed.t);
+    afterBuyLed.t = setTimeout(() => document.querySelectorAll('.ledC .l.grn').forEach(l => { l.classList.remove('grn'); l.textContent = '受付済'; }), 2400);
   }
   function yosoTab() {
     const D = S.data, cur = D.current;
@@ -264,8 +339,7 @@
     }
     if (cur.isMyHostWeek) return hostWeekView(cur);
     if (cur.closed) return closedView(cur);
-    if (cur.myPred && !S.editing) return votedView(cur);
-    if (D.me.canRefill && !cur.myPred) return zeroView(cur);
+    if (D.me.canRefill && !(cur.myPreds || []).length) return zeroView(cur);
     return predictView(cur);
   }
   function oddsCell(m) {
@@ -275,119 +349,156 @@
   function nameCell(m, bold) { return `<span class="nm ${m.name.length > 9 ? 'long' : ''}" style="${bold ? '' : 'font-weight:500'}">${esc(m.name)}</span>`; }
   function oddsNote(v) { return v.oddsLive ? '<div class="onote">オッズと人気はみんなの予想（使ったpt）で動きます。締切の時点で確定します</div>' : ''; }
   function tableHead(cols) { return `<div class="tr th"><span>枠</span><span>メニュー</span><span>オッズ</span>${cols.map(c => `<span>${c}</span>`).join('')}</div>`; }
+  function emptySel() { return { 火: [], 水: [], 木: [] }; }
 
   function predictView(v) {
-    if (!S.editingInit || S.editingInit !== v.weekId + (S.editing ? 'e' : '')) {
-      S.editingInit = v.weekId + (S.editing ? 'e' : '');
-      S.picks = v.myPred ? Object.assign({}, v.myPred.picks) : {};
-      S.bet = v.myPred ? String(v.myPred.bet) : String(Math.min(1000, Math.floor(S.data.me.balance / 100) * 100) || '');
+    if (S.selWeek !== v.weekId) {
+      S.selWeek = v.weekId; S.sel = emptySel();
+      S.bet = String(Math.min(100, Math.floor(S.data.me.balance / 100) * 100) || '');
       try {
         const d = JSON.parse(sessionStorage.getItem(store.key('hc_draft')) || 'null');
         sessionStorage.removeItem(store.key('hc_draft'));
-        if (d && d.weekId === v.weekId) { S.picks = d.picks || {}; S.bet = String(d.bet || ''); }
+        if (d && d.weekId === v.weekId && d.sel) { S.sel = d.sel; S.bet = String(d.bet || ''); }
       } catch (e) {}
     }
-    const rows = v.menus.map(m => `<div class="tr">${waku(m.waku)}${nameCell(m, true)}${oddsCell(m)}${DAYS.map(d => `<button class="dot ${S.picks[d] === m.waku ? 'on' : ''}" data-day="${d}" data-waku="${m.waku}" aria-pressed="${S.picks[d] === m.waku}" aria-label="${d} ${esc(m.name)}"></button>`).join('')}</div>`).join('');
-    return raceHead(v, '<span class="pill open">受付中</span>') + mumble(v) + aiEntry(v) + oddsNote(v) +
+    const sets = v.myPreds || [], t = totalsOf(sets);
+    const rows = v.menus.map(m => `<div class="tr">${waku(m.waku)}${nameCell(m, true)}${oddsCell(m)}${DAYS.map(d => { const on = S.sel[d].indexOf(m.waku) >= 0; return `<button class="dot ${on ? 'on' : ''}" data-day="${d}" data-waku="${m.waku}" aria-pressed="${on}" aria-label="${d} ${esc(m.name)}"></button>`; }).join('')}</div>`).join('');
+    const glow = S.glowSets || [];
+    const list = sets.length
+      ? sets.map(s => setCard(v, s, { del: true, glow: glow.indexOf(s.set) >= 0 })).join('') + `<div class="tot"><div><small>合計</small><b>${t.sets}組・${t.p}点</b></div><div><small>使ったpt</small><b>${fmt(t.c)}pt</b></div><div><small>当たれば最大</small><b class="mx">${fmt(maxPay(v, sets, {}))}pt</b></div></div>`
+      : '<div class="note" style="margin:0">まだ買っていません</div>';
+    return raceHead(v) + buyLed(v) + aiEntry(v) + oddsNote(v) +
       `<div class="tbl">${tableHead(DAYS)}${rows}</div>
+      <div class="list"><div class="list-h"><span>あなたの買い目</span></div>${list}</div>
       <div class="dock" id="dock">
-        <div class="l1"><span class="picks" id="dpicks"></span><span class="mul" id="dmul"></span></div>
-        <div class="bet"><label for="bet">使うpt</label><div class="box"><input id="bet" inputmode="numeric" pattern="[0-9]*" size="6" value="${esc(S.bet)}" placeholder="100pt単位" aria-describedby="derr"><span>pt</span></div></div>
+        <div class="l1"><span class="fm" id="dfm"></span></div>
+        <div class="bet"><label for="bet">1点あたり</label><div class="box"><input id="bet" inputmode="numeric" pattern="[0-9]*" size="6" value="${esc(S.bet)}" placeholder="100pt単位" aria-describedby="derr"><span>pt</span></div></div>
         <div class="err" id="derr" style="color:#FFC9C9"></div>
-        <div class="l3"><span class="ret" id="dret"></span><button class="btn gold" id="decide">この予想で決定</button></div>
-        ${S.editing ? '<button class="lnk" id="cancelEdit" style="color:#FFF;align-self:center">変更をやめる</button>' : ''}
+        <div class="l3"><span class="ret" id="dret"></span><button class="btn gold" id="buy">買う</button></div>
       </div>`;
   }
   function updateDock() {
     const v = S.data.current; if (!v) return;
-    const names = DAYS.map(d => { const m = v.menus.find(x => x.waku === S.picks[d]); return m ? m.name : '—'; });
-    const done = DAYS.every(d => S.picks[d]);
+    const q = id => document.getElementById(id);
+    if (!q('dfm')) return;
+    const done = DAYS.every(d => S.sel[d].length);
+    const n = done ? ptsOf(S.sel) : 0;
     const bet = Number(String(S.bet).replace(/[^\d]/g, ''));
-    const max = S.data.me.balance + (v.myPred ? v.myPred.bet : 0);
+    const max = S.data.me.balance;
     let er = '';
     if (S.bet !== '' && (!(bet >= 100) || bet % 100)) er = '100pt単位で入れてください';
-    else if (bet > max) er = '使えるのは ' + fmt(max) + 'pt までです';
-    const r = calcReturn(v.menus, S.picks, bet);
-    const q = id => document.getElementById(id);
-    if (!q('dpicks')) return;
-    q('dpicks').textContent = done ? names.join(' → ') : '火・水・木を1つずつ選んでください';
-    q('dmul').textContent = done ? r.mul.toFixed(1) + '倍' : '';
-    q('dret').innerHTML = done && !er && bet ? `3日とも当たれば（いまの倍率で）<br><b>${fmt(r.all)}</b> pt` : '';
+    else if (n && n * bet > max) er = '使えるのは ' + fmt(max) + 'pt までです';
+    q('dfm').innerHTML = `火${S.sel.火.length}<span class="x">×</span>水${S.sel.水.length}<span class="x">×</span>木${S.sel.木.length}<span class="x">＝</span><b>${n}点</b>`;
+    q('dret').innerHTML = done && bet && !er ? `${n}点 × ${fmt(bet)}pt ＝<br><b>${fmt(n * bet)}</b> pt` : done ? '' : '火・水・木を1つ以上選んでください';
     q('derr').textContent = er;
-    q('decide').disabled = !(done && bet && !er);
+    q('buy').textContent = done ? n + '点を買う' : '買う';
+    q('buy').disabled = !(done && bet && !er);
   }
-  function votedView(v) {
-    const names = DAYS.map(d => (v.menus.find(x => x.waku === v.myPred.picks[d]) || {}).name || '—');
-    const r = calcReturn(v.menus, v.myPred.picks, v.myPred.bet);
-    const at = new Date(v.myPred.at);
-    const rows = v.menus.map(m => `<div class="tr">${waku(m.waku)}${nameCell(m, DAYS.some(d => v.myPred.picks[d] === m.waku))}${oddsCell(m)}${DAYS.map(d => v.myPred.picks[d] === m.waku ? '<span class="mk hit" aria-label="予想"></span>' : '<span></span>').join('')}</div>`).join('');
-    return raceHead(v, '<span class="pill open">受付中</span>') +
-      `<div class="banner"><span class="ck">✓</span><div><b>へい、まいど！予想を受け付けました</b><small>${at.getMonth() + 1}/${at.getDate()}（${'日月火水木金土'[at.getDay()]}）${at.getHours()}:${String(at.getMinutes()).padStart(2, '0')}</small></div></div>` +
-      aiEntry(v) + `<div style="margin-top:10px">${oddsNote(v)}</div><div class="tbl">${tableHead(DAYS)}${rows}</div>
-      <div class="pad" style="margin-top:auto"><div class="card"><div class="hd"><span>あなたの予想</span><span>${r.mul.toFixed(1)}倍</span></div><div class="bd">
-        <b style="font-size:15px">${names.map(esc).join(' → ')}</b>
-        <div class="kv"><span>使うpt</span><b>${fmt(v.myPred.bet)} pt</b></div>
-        <div class="kv"><span>3日とも当たれば（いまの倍率で）</span><b style="color:var(--turf)">${fmt(r.all)} pt</b></div>
-        <button class="btn ghost" id="edit">予想を変更する</button></div></div></div>`;
+  // 締切後〜結果：上の電光＝言葉、下の電光＝数字（3マス｜点数｜金額）。品名は表にあるので下には出さない
+  function closedStage(v) {
+    const sets = v.myPreds || [], res = knownRes(v);
+    const cancelled = DAYS.some(d => v.results[d] && v.results[d].waku === 0);
+    const known = Object.keys(res).length;
+    const alive = alivePts(sets, res);
+    const next = DAYS.find(d => !v.results[d]);
+    let st;
+    if (cancelled) st = 'cancel';
+    else if (!sets.length) st = 'none';
+    else if (!known) st = 'closed';
+    else if (known === 3) { const pay = sets.reduce((a, s) => a + setPay(v, s, res).all, 0); st = alive ? 'win' : pay ? 'lose' : 'zero'; }
+    else if (alive && known === 2) st = 'reach';
+    else st = 'day';
+    return { st, sets, res, known, alive, next, t: totalsOf(sets) };
+  }
+  function closedTop(v, i) {
+    const nm = w => (v.menus.find(x => x.waku === w) || {}).name || '';
+    const need = i.next ? i.sets.filter(s => DAYS.every(d => !i.res[d] || s.picks[d].indexOf(i.res[d]) >= 0)).reduce((a, s) => a.concat(s.picks[i.next]), []).filter((w, k, a) => a.indexOf(w) === k).map(nm).join('・') : '';
+    const last = DAYS.slice().reverse().find(d => i.res[d]);
+    const T = {
+      none: ['開催中', '今週は予想していません　食べたものは毎日ここに出ます'],
+      cancel: ['中止', 'メニュー外の日があるため、今週は全額返還します'],
+      closed: ['締切', '受付を締め切りました　火曜の発表を待っています'],
+      day: [last ? last + '曜' : '発表', `${last ? last + '曜は ' + nm(i.res[last]) + '！　' : ''}${i.alive ? '3連単はまだ生きています　' : '3連単はここまで　日替わりは続きます　'}${i.next ? '次は' + i.next + '曜の発表' : ''}`],
+      reach: ['リーチ', `${i.next}曜 ${need} で 3連単 的中`],
+      win: ['的中', '3連単 的中！　確定をお待ちください'],
+      lose: ['終了', '3連単はここまで　当たった日の配当は獲得に入っています'],
+      zero: ['終了', '今週は当たりなし'],
+    }[i.st];
+    const cls = i.st === 'reach' || i.st === 'win' ? 'red' : i.st === 'lose' || i.st === 'zero' || i.st === 'cancel' ? 'dim' : '';
+    const m = T[1] + '　　　　';
+    return `<div class="ledC" role="status" aria-label="${esc(T.join(' '))}"><span class="l ${cls}">${T[0]}</span><span class="mq"><span>${m}${m}</span></span></div>`;
+  }
+  function closedBottom(v, i) {
+    if (i.st === 'none' || i.st === 'cancel') return '';
+    const cells = DAYS.map(d => {
+      const r = i.res[d];
+      if (r) { const hit = i.sets.some(s => s.picks[d].indexOf(r) >= 0); return `<div class="c ${hit ? 'hit' : 'miss'}"><small>${d}</small><b>${hit ? '✓' : '×'}</b></div>`; }
+      const reach = i.st === 'reach' && d === i.next;
+      return `<div class="c ${reach ? 'reach' : ''}"><small>${d}</small><b>${reach ? '？' : '・'}</b></div>`;
+    }).join('');
+    const fin = i.st === 'win' || i.st === 'lose' || i.st === 'zero';
+    const now = i.sets.reduce((a, s) => a + setPay(v, s, i.res).day, 0);
+    const got = i.sets.reduce((a, s) => a + setPay(v, s, i.res).all, 0);
+    const amt = fin ? (i.st === 'zero' ? -i.t.c : got) : maxPay(v, i.sets, i.res);
+    const mid = i.st === 'closed' ? `<b>${i.t.p}点</b><small>${i.t.sets}組・${fmt(i.t.c)}pt</small>`
+      : fin ? '<div class="fxbox"></div>'
+      : `<span class="al"><small>生き残り</small><b>${i.alive}点</b></span>${now ? `<small>獲得済み +${fmt(now)}</small>` : ''}`;
+    const sign = x => (x < 0 ? '−' : '+') + fmt(Math.abs(x));
+    return `<div class="ledE${fin ? ' fin ' + i.st : ''}" role="status" aria-label="${fin ? (i.st === 'zero' ? '収支 ' : '獲得 ') + sign(amt) + 'pt' : '当たれば最大 ' + fmt(amt) + 'pt'}"><div class="cells">${cells}</div><div class="mid">${mid}</div><div class="amt"><small>${i.st === 'zero' ? '収支' : fin ? '獲得' : '当たれば最大'}</small><b data-v="${amt}" class="${i.st === 'zero' ? 'neg' : ''}">${sign(amt)}</b></div></div>`;
   }
   function closedView(v) {
-    const res = v.results, p = v.myPred;
+    const i = closedStage(v), res = v.results;
     const cancelled = DAYS.filter(d => res[d] && res[d].waku === 0);
-    const waitDays = p ? DAYS.filter(d => !res[d]) : [];
-    const aliveTri = p && !cancelled.length && DAYS.every(d => !res[d] || res[d].waku === p.picks[d]);
-    const reachDay = aliveTri && waitDays.length === 1 ? waitDays[0] : null;
     const heads = DAYS.map(d => res[d] && res[d].waku === 0 ? `<span class="colcancel">${d} 中止</span>` : d);
+    const mine = (d, w) => i.sets.some(s => s.picks[d].indexOf(w) >= 0);
     const rows = v.menus.map(m => {
       const cells = DAYS.map(d => {
-        const r = res[d], mine = p && p.picks[d] === m.waku;
-        if (r && r.waku === 0) return mine ? '<span class="mk cancel" aria-label="中止">−</span>' : '<span></span>';
-        if (mine) { if (!r) return `<span class="mk wait${reachDay === d ? ' hot' : ''}" aria-label="予想（発表待ち）"></span>`; return r.waku === m.waku ? '<span class="mk hit" aria-label="当たり">✓</span>' : '<span class="mk miss" aria-label="はずれ">' + MISS_X + '</span>'; }
+        const r = res[d], my = mine(d, m.waku);
+        if (r && r.waku === 0) return my ? '<span class="mk cancel" aria-label="中止">−</span>' : '<span></span>';
+        if (my) { if (!r) return `<span class="mk wait${i.st === 'reach' && i.next === d ? ' hot' : ''}" aria-label="予想（発表待ち）"></span>`; return r.waku === m.waku ? '<span class="mk hit" aria-label="当たり">✓</span>' : '<span class="mk miss" aria-label="はずれ">' + MISS_X + '</span>'; }
         if (r && r.waku === m.waku) return `<span class="bowl" role="img" aria-label="${d}曜に食べたもの">${BOWL('#C8102E')}</span>`;
         return '<span></span>';
       }).join('');
-      return `<div class="tr">${waku(m.waku)}${nameCell(m, p && DAYS.some(d => p.picks[d] === m.waku))}${oddsCell(m)}${cells}</div>`;
+      return `<div class="tr">${waku(m.waku)}${nameCell(m, DAYS.some(d => mine(d, m.waku)))}${oddsCell(m)}${cells}</div>`;
     }).join('');
-    let dock = '';
-    if (p) {
-      const names = DAYS.map(d => (v.menus.find(x => x.waku === p.picks[d]) || {}).name || '—');
-      const r = calcReturn(v.menus, p.picks, p.bet);
-      let got = 0;
-      const chips = DAYS.map((d, i) => {
-        const x = res[d];
-        if (!x) return `<span class="wait">${d} 発表待ち</span>`;
-        if (x.waku === 0) return `<span class="cancel">${d} 中止</span>`;
-        if (x.waku === p.picks[d]) { got += r.daily[i]; return `<span class="hit">${d} ✓ +${fmt(r.daily[i])}</span>`; }
-        return `<span class="miss">${d} ×</span>`;
-      }).join('');
-      const anyMiss = DAYS.some(d => res[d] && res[d].waku !== 0 && res[d].waku !== p.picks[d]);
-      const allHit = DAYS.every(d => res[d] && res[d].waku === p.picks[d]);
-      const tag = cancelled.length ? '3連単 不成立' : allHit ? '3連単 的中！' : anyMiss ? '3連単 不的中' : '3連単 発表待ち';
-      if (allHit) got += Math.floor(p.bet * r.mul);
-      const board = cancelled.length ? '' : ledBoard(v, p, r, got, waitDays, aliveTri);
-      dock = `<div class="dock">${board}<div class="l1"><span class="picks">${names.map(esc).join(' → ')}</span><span class="mul">使った ${fmt(p.bet)}pt</span></div>
-        <div class="chips">${chips}</div>
-        <div class="l1">${cancelled.length ? '<span style="font-size:13px;font-weight:700">中止の日があるため <b style="color:var(--gold)">全額返還</b></span>' : `<span style="font-size:13px">いまの獲得 <b style="font-size:18px;color:var(--gold)">${fmt(got)}</b> pt</span>`}${board ? '' : `<span class="tag">${tag}</span>`}</div></div>`;
-    } else {
-      dock = '<div class="dock"><span style="font-size:13px">今週は予想していません。食べたものは毎日ここに出ます。</span></div>';
-    }
-    return raceHead(v, '<span class="pill run">開催中</span>') +
+    const list = i.sets.length ? `<div class="list"><div class="list-h"><span>あなたの買い目</span></div>${i.sets.map(s => setCard(v, s, { res: i.res })).join('')}</div>` : '';
+    const board = closedBottom(v, i);
+    return raceHead(v) + closedTop(v, i) +
       `<div class="legend"><span><span class="mk wait"></span>予想</span><span><span class="mk hit">✓</span>当たり</span><span><span class="mk miss">${MISS_X}</span>はずれ</span><span><span class="bowl" style="width:20px;height:20px">${BOWL('#C8102E')}</span>食べたもの</span>${cancelled.length ? '<span><span class="mk cancel">−</span>中止</span>' : ''}</div>` +
-      `<div class="tbl"><div class="tr th"><span>枠</span><span>メニュー</span><span>オッズ</span>${heads.map(h => `<span>${h}</span>`).join('')}</div>${rows}</div>` + crowdView(v) + aiEntry(v) + dock;
+      `<div class="tbl"><div class="tr th"><span>枠</span><span>メニュー</span><span>オッズ</span>${heads.map(h => `<span>${h}</span>`).join('')}</div>${rows}</div>` + list + crowdView(v) + aiEntry(v) +
+      (board ? `<div class="dock">${board}</div>` : '');
   }
-  // 電光掲示板：3連単がどこまで来ているか（リーチ・あと2つ・あと3つ・終了・的中）
-  function ledBoard(v, p, r, got, waitDays, alive) {
-    const nm = d => esc((v.menus.find(x => x.waku === p.picks[d]) || {}).name || '—');
-    const di = d => DAYS.indexOf(d);
-    const triple = Math.floor(p.bet * r.mul);
-    const next = waitDays[0];
-    let lab, cls, msg, amt, note = '';
-    if (alive && !next) { lab = '的中'; cls = 'red blink'; msg = '3連単 的中！ 確定をお待ちください'; amt = got; }
-    else if (alive && waitDays.length === 1) { lab = 'リーチ'; cls = 'red blink'; msg = `${next}曜 ${nm(next)} で 3連単 的中`; amt = triple + r.daily[di(next)]; }
-    else if (alive) { lab = 'あと' + waitDays.length + 'つ'; cls = 'org'; msg = `${next}曜 ${nm(next)} で ${waitDays.length === 2 ? 'リーチ' : 'スタート'}`; amt = triple; note = '3連単'; }
-    else if (next) { lab = '3連単終了'; cls = 'dim'; msg = `日替わりは続きます　${next}曜 ${nm(next)} で`; amt = r.daily[di(next)]; }
-    else { lab = '3連単終了'; cls = 'dim'; msg = '今週の発表はすべて終わりました'; amt = got; note = '獲得'; }
-    const m = msg + '　　　';
-    return `<div class="led-row" role="status" aria-label="${lab}　${esc(msg.replace(/<[^>]*>/g, ''))}　${note}${fmt(amt)}pt"><div class="led"><span class="l1 ${cls}">${lab}</span><span class="mq"><span>${m}${m}</span></span></div><div class="led amt">${note ? `<i>${note}</i>` : ''}<span>+${fmt(amt)}</span><small>pt</small></div></div>`;
+  // 的中：ドットの花火 → 「的中」の点滅と同時に獲得金額がスロットのように回る
+  // 外れ：「終了」が暗くなりながら、獲得金額が回って止まる／0pt：使ったptのマイナスまで回る
+  // 同じ週・同じ結果では1回だけ（2回目からは止まった形で出す）
+  function playFin(v) {
+    const b = document.querySelector('.ledE.fin'); if (!b) return;
+    const st = b.classList.contains('win') ? 'win' : b.classList.contains('zero') ? 'zero' : 'lose';
+    const box = b.querySelector('.fxbox'), amt = b.querySelector('.amt b'), to = Number(amt.dataset.v) || 0;
+    const sign = x => (x < 0 ? '−' : '+') + fmt(Math.abs(x));
+    const key = 'fin_' + v.weekId + '_' + st;
+    const still = () => { box.innerHTML = `<div class="fx-flash ${st === 'win' ? 'win still' : 'lose still'}">${st === 'win' ? '的中' : '終了'}</div>`; amt.textContent = sign(to); };
+    if (store.get(key) || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) return still();
+    store.set(key, '1');
+    clearTimeout(playFin.t1); cancelAnimationFrame(playFin.raf);
+    const roll = (dur, end, done) => { let t0 = null; const f = ts => { if (!document.body.contains(amt)) return; if (!t0) t0 = ts; const k = Math.min(1, (ts - t0) / dur);
+      const x = k < 1 ? Math.round(end * (1 - Math.pow(1 - k, 3)) + (Math.random() - .5) * Math.abs(end) * .1 * (1 - k)) : end; amt.textContent = sign(x); if (k < 1) requestAnimationFrame(f); else if (done) done(); }; requestAnimationFrame(f); };
+    amt.textContent = '+0';
+    if (st === 'win') {
+      box.innerHTML = '<canvas class="fx-cv" width="150" height="56"></canvas>';
+      fireworks(box.querySelector('canvas'));
+      playFin.t1 = setTimeout(() => { cancelAnimationFrame(playFin.raf); box.innerHTML = '<div class="fx-flash win">的中</div>'; b.classList.add('flashbg'); roll(1800, to, () => { amt.classList.add('pop'); b.classList.remove('flashbg'); }); }, 1800);
+    } else { box.innerHTML = '<div class="fx-flash lose">終了</div>'; roll(1600, to); }
+  }
+  // ドットの花火（電光の粒）
+  function fireworks(cv) {
+    if (!cv) return;
+    const g = cv.getContext('2d'), P = 3; let ps = [], t = 0;
+    const burst = () => { const x = 20 + Math.random() * 110, y = 12 + Math.random() * 24, col = ['#FFD60A', '#FF9A1F', '#46F07F', '#FF4D3F'][Math.floor(Math.random() * 4)]; for (let k = 0; k < 26; k++) { const a = Math.random() * Math.PI * 2, s = .6 + Math.random() * 1.6; ps.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, l: 30 + Math.random() * 20, c: col }); } };
+    const step = () => { if (!document.body.contains(cv)) return; g.fillStyle = 'rgba(17,17,17,.35)'; g.fillRect(0, 0, 150, 56); if (t++ % 22 === 0) burst();
+      ps = ps.filter(p => p.l-- > 0); ps.forEach(p => { p.x += p.vx; p.y += p.vy; p.vy += .04; g.fillStyle = p.c; g.fillRect(Math.round(p.x / P) * P, Math.round(p.y / P) * P, P - 1, P - 1); });
+      playFin.raf = requestAnimationFrame(step); };
+    step();
   }
   // みんなの予想：曜日ごとに、枠の色の帯で人数だけ
   function crowdView(v) {
@@ -403,7 +514,7 @@
   }
   function hostWeekView(v) {
     const rows = v.menus.slice().sort((a, b) => a.waku - b.waku).map(m => `<div class="tr tr4">${waku(m.waku)}${nameCell(m, m.pop <= 2)}<span style="text-align:right;${m.pop === 1 ? 'color:var(--red);font-weight:700' : m.pop === 2 ? 'color:#1F5BC4;font-weight:700' : ''}">${m.pop}番人気</span><span style="text-align:right">${oddsTxt(m.odds)}</span></div>`).join('');
-    return raceHead(v, v.closed ? '<span class="pill run">開催中</span>' : '<span class="pill open">受付中</span>') +
+    return raceHead(v) +
       `<div class="notice cream">${chefImg('sorry')}<div><b>今週はあなたが担当です</b><span>今週は予想できません。</span></div></div>
       <div style="margin:14px 14px 6px;font-size:12px;font-weight:700;color:var(--sub)">今週の出馬表</div>
       <div class="tbl"><div class="tr tr4 th"><span>枠</span><span>メニュー</span><span style="text-align:right">人気</span><span style="text-align:right">オッズ</span></div>${rows}</div>
@@ -411,38 +522,46 @@
   }
   function zeroView(v) {
     const rows = v.menus.map(m => `<div class="tr">${waku(m.waku)}${nameCell(m, false)}${oddsCell(m)}${DAYS.map(() => '<button class="dot" disabled aria-hidden="true"></button>').join('')}</div>`).join('');
-    return raceHead(v, '<span class="pill open">受付中</span>') +
+    return raceHead(v) +
       `<div class="notice pink">${chefImg('sorry')}<div><b style="color:var(--red)">${S.data.me.balance <= 0 ? '持ち点がなくなりました' : '持ち点が100ptを切りました'}</b><span>${refillBlocked() ? '今週の補充はここまでです。月曜になると、また満額で補充できます。' : 'クイズかレビューで、すぐに補充できます。'}</span></div></div>
       <div class="tbl" style="margin-top:12px;opacity:.5">${tableHead(DAYS)}${rows}</div>
       ${refillBlocked() ? '' : '<div class="dock"><span class="rf-hint">補充すると、今週の予想にそのまま参加できます</span><button class="btn gold block" data-act="refill">ptを補充する</button></div>'}`;
   }
+  // 買う（AI予想の画面からも使う）。買ったら上の電光に受付が流れ、増えた買い目が光る
+  async function buySets(sets, from) {
+    const v = S.data.current; if (!v) return false;
+    try {
+      const r = await api('predict', { weekId: v.weekId, sets, from: from || '' });
+      S.newAt = Date.now(); S.glowSets = r.sets || [];
+      await refresh({ loading: false });
+      afterBuyLed();
+      setTimeout(() => { S.glowSets = []; }, 1500);
+      return true;
+    } catch (e) { return false; }
+  }
   function bindYoso() {
     $app.querySelectorAll('[data-go]').forEach(b => b.onclick = () => switchTab(b.dataset.go));
     $app.querySelectorAll('.dot[data-day]').forEach(b => b.onclick = () => {
-      const d = b.dataset.day, w = Number(b.dataset.waku);
-      S.picks[d] = S.picks[d] === w ? undefined : w;
-      $app.querySelectorAll(`.dot[data-day="${d}"]`).forEach(x => { const on = Number(x.dataset.waku) === S.picks[d]; x.classList.toggle('on', on); x.setAttribute('aria-pressed', on); });
+      const d = b.dataset.day, w = Number(b.dataset.waku), a = S.sel[d], k = a.indexOf(w);
+      if (k < 0) a.push(w); else a.splice(k, 1);
+      a.sort((x, y) => x - y);
+      const on = k < 0; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on);
       updateDock();
     });
     const bet = document.getElementById('bet');
     if (bet) { bet.oninput = () => { S.bet = bet.value.replace(/[^\d]/g, ''); if (bet.value !== S.bet) bet.value = S.bet; updateDock(); }; updateDock(); }
-    const dec = document.getElementById('decide');
-    if (dec) dec.onclick = async () => {
-      const v = S.data.current;
-      dec.disabled = true;
-      try {
-        await api('predict', { weekId: v.weekId, picks: S.picks, bet: Number(S.bet) });
-        S.editing = false; S.editingInit = null;
-        maido();
-        await refresh({ loading: false });
-      } catch (e) { dec.disabled = false; }
+    const by = document.getElementById('buy');
+    if (by) by.onclick = async () => {
+      by.disabled = true;
+      const ok = await buySets([{ picks: { 火: S.sel.火.slice(), 水: S.sel.水.slice(), 木: S.sel.木.slice() }, bet: Number(S.bet) }]);
+      if (ok) { S.sel = emptySel(); render(); } else by.disabled = false;
     };
-    const ed = document.getElementById('edit'); if (ed) ed.onclick = () => { S.editing = true; S.editingInit = null; render(); };
-    const ce = document.getElementById('cancelEdit'); if (ce) ce.onclick = () => { S.editing = false; S.editingInit = null; render(); };
-  }
-  function maido() {
-    const el = document.createElement('div'); el.className = 'maido'; el.textContent = 'へい、まいど！';
-    document.body.appendChild(el); setTimeout(() => el.remove(), 1700);
+    $app.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+      const v = S.data.current; b.disabled = true;
+      try { await api('cancelPred', { weekId: v.weekId, set: Number(b.dataset.del) }); toast('取り消しました（ptは戻りました）'); await refresh({ loading: false }); } catch (e) { b.disabled = false; }
+    });
+    const v = S.data.current;
+    if (v && v.closed) playFin(v);
   }
 
   // ---------- 結果タブ ----------
@@ -452,27 +571,32 @@
     return resultView(v);
   }
   function resultView(v) {
-    const p = v.myPred, st = v.settle, res = v.results;
+    const sets = v.myPreds || [], st = v.settle, res = v.results;
     const cancelled = v.status === '返還';
     const triple = st && st.triple > 0;
+    const t = totalsOf(sets);
     const seal = cancelled ? '<span class="seal gray">返還</span>' : '<span class="seal">確定</span>';
     const head = `<div class="race"><div class="row"><div style="display:flex;flex-direction:column"><span style="font-weight:900;font-size:17px">${esc(v.title)}</span><span class="when">${esc(v.dates)}</span></div>${seal}</div></div>`;
     const marks = v.marks.map(k => `<span class="${k === 'hit' ? 'hit' : k === 'cancel' ? 'cancel' : k === 'miss' ? 'miss' : 'none'}">${k === 'hit' ? '✓' : k === 'cancel' ? '−' : k === 'miss' ? MISS_X : ''}</span>`).join('');
     let sum;
-    if (!p) sum = `<div class="sum"><div class="l"><small>今週の収支</small><span class="big" style="font-size:20px">予想していません</span></div><div class="ms">${marks}</div></div>`;
-    else if (cancelled) sum = `<div class="sum"><div class="l"><small>中止の日があるため、今週は全額返還</small><span class="big">±0<span> pt</span></span><small>使った ${fmt(p.bet)}pt ／ <b style="color:var(--gold)">全額返還</b></small></div><div class="ms">${marks}</div></div>`;
-    else sum = `<div class="sum ${triple ? 'hit' : ''}">${triple ? '<svg width="120" height="120" viewBox="0 0 100 100" aria-hidden="true" style="position:absolute;right:-18px;top:-14px;opacity:.22"><circle cx="50" cy="50" r="40" fill="none" stroke="#F7B500" stroke-width="6"/><circle cx="50" cy="50" r="26" fill="none" stroke="#F7B500" stroke-width="3"/><circle cx="50" cy="50" r="9" fill="#F7B500"/></svg>' : ''}<div class="l">${triple ? '<em>3連単 的中！</em>' : ''}<small>今週の収支</small><span class="big">${signed(st ? st.net : 0)}<span> pt</span></span><small>使った ${fmt(p.bet)}pt ／ 獲得 <b style="color:var(--gold)">${fmt(st ? st.total : 0)}</b>pt</small></div><div class="ms">${marks}</div></div>`;
+    if (!sets.length) sum = `<div class="sum"><div class="l"><small>今週の収支</small><span class="big" style="font-size:20px">予想していません</span></div><div class="ms">${marks}</div></div>`;
+    else if (cancelled) sum = `<div class="sum"><div class="l"><small>中止の日があるため、今週は全額返還</small><span class="big">±0<span> pt</span></span><small>使った ${fmt(t.c)}pt ／ <b style="color:var(--gold)">全額返還</b></small></div><div class="ms">${marks}</div></div>`;
+    else sum = `<div class="sum ${triple ? 'hit' : ''}">${triple ? '<svg width="120" height="120" viewBox="0 0 100 100" aria-hidden="true" style="position:absolute;right:-18px;top:-14px;opacity:.22"><circle cx="50" cy="50" r="40" fill="none" stroke="#F7B500" stroke-width="6"/><circle cx="50" cy="50" r="26" fill="none" stroke="#F7B500" stroke-width="3"/><circle cx="50" cy="50" r="9" fill="#F7B500"/></svg>' : ''}<div class="l">${triple ? '<em>3連単 的中！</em>' : ''}<small>今週の収支</small><span class="big">${signed(st ? st.net : 0)}<span> pt</span></span><small>使った ${fmt(t.c)}pt ／ 獲得 <b style="color:var(--gold)">${fmt(st ? st.total : 0)}</b>pt</small></div><div class="ms">${marks}</div></div>`;
+    // 買った目：3連単的中／日替わりだけ当たり／外れ に分ける（外れはたたんでおく）
     let brk = '';
-    if (p) {
-      const rows = DAYS.map((d, i) => {
-        const m = v.menus.find(x => x.waku === p.picks[d]) || { name: '—', odds: 0 };
-        const k = v.marks[i];
-        if (k === 'cancel') return `<div class="r"><b>${d}</b><span class="m cancel">−</span><span style="color:var(--sub)">中止</span><span class="v">—</span></div>`;
-        const val = cancelled ? '<span class="v">—</span>' : k === 'hit' ? `<span class="v plus">+${fmt(st ? st.daily[d] : 0)}</span>` : '<span class="v">0</span>';
-        return `<div class="r"><b>${d}</b><span class="m ${k === 'hit' ? 'hit' : 'miss'}">${k === 'hit' ? '✓' : MISS_X}</span><span style="${k === 'hit' ? '' : 'color:var(--sub)'}">${esc(m.name === OTHER_NAME && res[d] && res[d].other ? m.name + '（' + res[d].name + '）' : m.name)} <small>${oddsTxt(m.odds)}倍</small></span>${val}</div>`;
-      }).join('');
-      const tv = cancelled ? '<span class="v">不成立</span>' : triple ? `<span class="v big">+${fmt(st.triple)}</span>` : '<span class="v">0</span>';
-      brk = `<div class="brk"><span class="h">内訳</span>${rows}<div class="r t ${triple ? 'win' : ''}"><span>${triple ? '<b>3連単</b>' : '3連単'}</span>${tv}</div></div>`;
+    if (sets.length && !cancelled) {
+      const kr = knownRes(v);
+      const got = s => s.got !== undefined ? s.got : setPay(v, s, kr).all;
+      const kind = s => (s.triple !== undefined ? s.triple : DAYS.every(d => s.picks[d].indexOf(kr[d]) >= 0)) ? 'win' : got(s) > 0 ? 'day' : 'out';
+      const g = { win: [], day: [], out: [] }; sets.forEach(s => g[kind(s)].push(s));
+      const sec = (k, title) => {
+        if (!g[k].length) return '';
+        if (k === 'out') return `<details class="wk-sec"><summary class="h out"><span>${title}（${g[k].length}組）</span><span>▼ ひらく</span></summary>${g[k].map(s => setCard(v, s, { res: kr, ret: 0 })).join('')}</details>`;
+        return `<div class="wk-sec"><div class="h ${k}"><span>${title}（${g[k].length}組）</span><span>+${fmt(g[k].reduce((a, s) => a + got(s), 0))}pt</span></div>${g[k].map(s => setCard(v, s, { res: kr, ret: got(s), badge: k === 'win' ? '<span class="fc-st win">3連単的中</span>' : '<span class="fc-st day">日替わり</span>' })).join('')}</div>`;
+      };
+      brk = `<div class="wk"><div class="wk-kv"><div>買った<b>${t.sets}組・${t.p}点</b></div><div>使った<b>${fmt(t.c)}pt</b></div><div>戻った<b>${fmt(st ? st.total : 0)}pt</b></div></div>${sec('win', '3連単 的中')}${sec('day', '日替わりだけ当たり')}${sec('out', '外れ')}</div>`;
+    } else if (sets.length) {
+      brk = `<div class="list"><div class="list-h"><span>あなたの買い目</span></div>${sets.map(s => setCard(v, s, {})).join('')}</div>`;
     }
     const photos = '<div class="photos">' + DAYS.map(d => {
       const r = res[d];
@@ -482,7 +606,7 @@
       const cap = `<span class="cap"><b>${d}</b> ${esc(r.name)}</span>`;
       return r.photo ? `<button class="ph" data-zoom="${d}" aria-label="${d}曜の${esc(r.name)}の写真を拡大"><div class="im">${im}</div>${cap}</button>` : `<div><div class="im">${im}</div>${cap}</div>`;
     }).join('') + '</div>';
-    const share = p ? `<div class="pad"><button class="btn gold block" id="share" style="display:flex;align-items:center;justify-content:center;gap:8px">${SHARE_ICON}結果をシェア</button></div>` : '';
+    const share = sets.length ? `<div class="pad"><button class="btn gold block" id="share" style="display:flex;align-items:center;justify-content:center;gap:8px">${SHARE_ICON}結果をシェア</button></div>` : '';
     return head + sum + brk + photos + share;
   }
   function bindResult(v) {
@@ -617,16 +741,30 @@
   }
 
   // ---------- シェア ----------
-  function shareData(v) {
-    const p = v.myPred;
-    const rows = DAYS.map((d, i) => { const m = v.menus.find(x => x.waku === p.picks[d]) || { name: '—', odds: 0 }; const k = v.marks[i]; return { day: d, name: m.name, odds: m.odds, kind: k === 'hit' ? 'hit' : k === 'cancel' ? 'cancel' : 'miss' }; });
-    return { title: v.title, rows, hits: v.marks.filter(k => k === 'hit').length, cancelled: v.status === '返還', bet: p.bet, net: v.settle ? v.settle.net : 0 };
+  // シェア画像の中身。いつもは「まとめの形」（3日の結果に当たり・はずれ、使ったptと収支）
+  // 3連単が当たった週は「ベストの1組」「買い目の一覧（上位だけ）」も選べる
+  function shareData(v, mode) {
+    const sets = v.myPreds || [], kr = knownRes(v), t = totalsOf(sets);
+    const rows = DAYS.map((d, i) => { const r = v.results[d] || { waku: 0, name: '—' }; const k = v.marks[i]; return { day: d, name: r.waku === 0 ? '中止' : r.name, odds: oddsOf(v, r.waku), kind: k === 'hit' ? 'hit' : k === 'cancel' ? 'cancel' : 'miss' }; });
+    const base = { title: v.title, rows, hits: v.marks.filter(k => k === 'hit').length, cancelled: v.status === '返還', bet: t.c, net: v.settle ? v.settle.net : 0, mode: 'summary' };
+    const pay = s => s.got !== undefined ? s.got : setPay(v, s, kr).all;
+    const wins = sets.filter(s => s.triple || DAYS.every(d => s.picks[d].indexOf(kr[d]) >= 0));
+    if (mode === 'best' && wins.length) { const b = wins.slice().sort((x, y) => pay(y) - pay(x))[0]; return Object.assign(base, { mode: 'best', bet: b.bet, pay: pay(b), points: b.points }); }
+    if (mode === 'list') {
+      const nm = w => (v.menus.find(x => x.waku === w) || {}).name || '';
+      const list = sets.slice().sort((x, y) => pay(y) - pay(x)).slice(0, 5).map(s => ({ text: DAYS.map(d => s.picks[d].map(nm).join('・')).join(' → '), points: s.points, bet: s.bet, pay: pay(s), win: wins.indexOf(s) >= 0 }));
+      return Object.assign(base, { mode: 'list', list, more: Math.max(0, sets.length - 5) });
+    }
+    return base;
   }
   // 結果のシェア：画像を作って、共有の画面から Slack へ（送り先のチャンネルは Slack の画面で選ぶ）
-  function openShare(v) {
-    const blobP = window.ShareImage.blob(shareData(v));
+  function openShare(v, mode) {
+    mode = mode || 'summary';
+    const blobP = window.ShareImage.blob(shareData(v, mode));
+    const triple = v.settle && v.settle.triple > 0;
+    const seg = triple ? `<div class="ai-seg sh-seg" role="radiogroup">${[['summary', 'まとめ'], ['best', 'ベスト'], ['list', '一覧']].map(([k, n]) => `<button role="radio" aria-checked="${k === mode}" class="${k === mode ? 'on' : ''}" data-mode="${k}">${n}</button>`).join('')}</div>` : '';
     openLayer(`<div class="scrim" data-close></div><div class="sheet" role="dialog" aria-label="結果をシェア"><div class="grab"><span></span></div>
-      <div class="share"><img id="shimg" alt="シェア画像のプレビュー">
+      <div class="share">${seg}<img id="shimg" alt="シェア画像のプレビュー">
       <button class="btn slack block" id="slack" disabled>Slackに送る</button>
       <div class="links"><button class="lnk" data-close style="color:var(--sub)">閉じる</button></div></div></div>`);
     blobP.then(blob => {
@@ -640,6 +778,7 @@
       };
       const sl = document.getElementById('slack'); if (sl) { sl.disabled = false; sl.onclick = share; }
     }).catch(() => toast('画像を作れませんでした'));
+    $layer.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => openShare(v, b.dataset.mode));
   }
 
   // ---------- メニュー・ルール ----------
@@ -652,7 +791,7 @@
   // 開いたときの読み込みなど、利用者の操作でないときは黙って開き直す。操作の途中なら、開き直したあとに一言出す
   // 30秒以内に2回目になったら（古いファイルが残っているなど）、開き直しが続かないよう案内を出して止める
   const RELOAD_QUIET = ['state', 'hostState', 'history', 'week', 'postMenus', 'notices', 'pushKey'];
-  function saveDraft() { try { const v = S.data && S.data.current; if (v) sessionStorage.setItem(store.key('hc_draft'), JSON.stringify({ weekId: v.weekId, picks: S.picks, bet: S.bet })); } catch (e) {} }
+  function saveDraft() { try { const v = S.data && S.data.current; if (v) sessionStorage.setItem(store.key('hc_draft'), JSON.stringify({ weekId: v.weekId, sel: S.sel, bet: S.bet })); } catch (e) {} }
   function showReload(action) {
     saveDraft();
     let last = 0;
@@ -705,15 +844,15 @@
       <div class="rule"><p style="margin:0;font-size:14px;font-weight:700">火・水・木に食べるお昼を、1日ずつ当てるゲームです。</p>
       <div class="steps">
         <div><span class="d" style="background:var(--turf)">月</span><div><b>出馬表の公開</b><br><span class="s">今週のメニューと人気（オッズ）を公開します。</span></div></div>
-        <div><span class="d" style="background:var(--red)">火 昼前</span><div><b>締め切り</b><br><span class="s">火・水・木の列で1つずつ丸をタップ。締切までは何度でも変えられます。同じ品を2日以上選んでもOK。</span></div></div>
+        <div><span class="d" style="background:var(--red)">火 昼前</span><div><b>締め切り</b><br><span class="s">火・水・木の列で、それぞれ1つ以上の丸をタップして買います。何組でも買えて、締切までは取り消せます。同じ品を2日以上選んでもOK。</span></div></div>
         <div><span class="d" style="background:var(--gold);color:var(--ink)">火〜木</span><div><b>毎日発表</b><br><span class="s">その日に食べたものが出馬表に出ます。</span></div></div>
         <div><span class="d" style="background:var(--ink)">木</span><div><b>結果が確定</b><br><span class="s">獲得ptが「結果」タブに出ます。</span></div></div>
       </div>
       <div class="ptbox"><b style="font-size:14px">ptのしくみ</b>
-        <div style="color:var(--sub);font-size:12px">最初の持ち点は全員 <b style="color:var(--ink)">10,000pt</b>。予想と一緒に使うptを決めます（100pt単位、持ち点まで）。決定した時点で持ち点から引かれ、結果が確定すると獲得ptが加わります。</div>
-        <div><b>日替わりpt</b>　当たった日ごとに<br><b style="color:var(--turf)">使うpt × 1/3 × その品のオッズ</b><small style="color:var(--sub)">（端数は切り捨て）</small></div>
-        <div><b>3連単</b>　3日とも当たれば、さらに<br><b style="color:var(--red)">使うpt × 3品のオッズのかけ算</b></div>
-        <div style="border-top:1px dashed var(--line2);padding-top:8px;color:var(--sub);font-size:12px">例：1,000pt使って、1・2・3番人気（2.0・3.0・4.5倍）を<br>3日とも当てると 666＋1,000＋1,500＋27,000 ＝ <b style="color:var(--ink);font-size:14px">30,166pt</b><br>火曜だけ当たったら <b style="color:var(--ink)">666pt</b>（収支 −334pt）</div>
+        <div style="color:var(--sub);font-size:12px">最初の持ち点は全員 <b style="color:var(--ink)">10,000pt</b>。1日に複数の品を選ぶと、その組み合わせの数が<b style="color:var(--ink)">点数</b>になります（例：火2品×水1品×木2品＝4点）。使うのは <b style="color:var(--ink)">1点あたりのpt（100pt単位）× 点数</b>で、買った時点で持ち点から引かれ、結果が確定すると獲得ptが加わります。</div>
+        <div><b>日替わりpt</b>　当たった日ごとに、1点につき<br><b style="color:var(--turf)">1点あたりのpt × 1/3 × その品のオッズ</b><small style="color:var(--sub)">（端数は切り捨て。その品を含む点の数だけもらえます）</small></div>
+        <div><b>3連単</b>　3日とも当たった1点に、さらに<br><b style="color:var(--red)">1点あたりのpt × 3品のオッズのかけ算</b></div>
+        <div style="border-top:1px dashed var(--line2);padding-top:8px;color:var(--sub);font-size:12px">例：1点1,000ptで、1・2・3番人気（2.0・3.0・4.5倍）を<br>3日とも当てると 666＋1,000＋1,500＋27,000 ＝ <b style="color:var(--ink);font-size:14px">30,166pt</b><br>火曜だけ当たったら <b style="color:var(--ink)">666pt</b>（収支 −334pt）</div>
         <div style="color:var(--sub);font-size:12px">倍率は、ホストが並べた順の<b style="color:var(--ink)">基本の倍率</b>（下の表）を、<b style="color:var(--ink)">みんなが使ったpt</b>で補正したものです。ptが多く集まった品は下がり、少ない品は上がります（基本の0.6〜1.6倍の範囲）。「○番人気」は今の倍率の低い順で、<b style="color:var(--ink)">締切の時点の倍率</b>で確定します。</div>
         <div class="oddsg">${o.slice(0, 8).map((x, i) => `<span>${i + 1}番目 <b>${Number.isInteger(x) && x >= 10 ? x : oddsTxt(x)}</b></span>`).join('')}</div>
       </div>
@@ -855,52 +994,92 @@
   }
   function aiName(id) { const m = S.ai.info.models.find(x => x.id === id); return m ? m.name : id; }
   function aiEff(id) { const e = S.ai.info.efforts.find(x => x.id === id); return e ? e.name : id; }
-  function aiDays(res) {
-    const head = `<div class="ai-tr ai-th"><span></span>${DAYS.map(d => `<span>${d}</span>`).join('')}</div>`;
-    const rows = [0, 1, 2].map(k => `<div class="ai-tr"><span class="mk-${k}">${['◎', '○', '▲'][k]}</span>${DAYS.map(d => { const x = res.days[d][k]; return x ? `<span class="c">${waku(x.waku)}<span class="n">${esc(x.name)}</span><small>${x.p}%</small></span>` : '<span></span>'; }).join('')}</div>`).join('');
-    return `<div class="ai-days">${head}${rows}</div>`;
-  }
-  function aiBuys(res) {
-    const can = S.ai.info.canBuy;
-    const rows = res.buys.map((b, i) => `<div class="ai-buy"><span class="no">${i + 1}</span><div class="b">${b.picks.map((w, j) => `<span class="ai-bpk"><em>${DAYS[j]}</em>${waku(w)}<span>${esc(b.names[j])}</span></span>`).join('')}<small>当たる見込み ${b.p}%　・　${oddsTxt(b.mul)}倍</small></div>${can ? `<button class="btn gray ai-use" data-use="${b.picks.join(',')}">予想に入れる</button>` : ''}</div>`).join('');
-    return `<div class="ai-h">買い目（3連単）</div>${rows}`;
+  // AIの買い目：選ぶ（✓）・目ごとの金額・3連単の倍率・AIの自信（5段階）・3日の人気と倍率。全部見てから買うので、まとめ欄は下
+  function aiKey(it) { return it.model + '-' + it.effort; }
+  function aiBuys(it) {
+    const A = S.ai, v = S.data.current, res = it.result, key = aiKey(it);
+    const can = A.info.canBuy && v && !v.closed;
+    const st = A.buy[key] = A.buy[key] || { sel: res.buys.map(() => false), amt: res.buys.map(() => ''), bet: '100' };
+    const amt = i => Number(st.amt[i] || st.bet) || 0;
+    const sel = res.buys.map((_, i) => i).filter(i => st.sel[i]);
+    const tot = sel.reduce((a, i) => a + amt(i), 0);
+    const ok = can && sel.length && sel.every(i => amt(i) >= 100 && amt(i) % 100 === 0) && tot <= S.data.me.balance;
+    const menu = w => (v && v.menus.find(m => m.waku === w)) || {};
+    const mul = k => k.reduce((a, w) => a * (menu(w).odds || 0), 1);
+    const from = 'AI ' + aiName(it.model);
+    const bought = k => (v && v.myPreds || []).filter(s => s.from === from && DAYS.every((d, j) => s.picks[d].length === 1 && s.picks[d][0] === k[j])).map(s => s.bet);
+    const dots = n => n ? `<span class="c"><i>AIの自信</i><span class="cf">${'●'.repeat(n)}<s>${'●'.repeat(5 - n)}</s></span></span>` : '<span></span>';
+    const glow = A.glow && A.glow.key === key ? A.glow.rows : [];
+    const rows = res.buys.map((b, i) => {
+      const k = b.picks, got = bought(k);
+      const days = k.map((w, j) => { const m = menu(w); return `<span class="d">${DAYS[j]}</span><span class="w">${waku(w)}</span><span class="n">${esc(b.names[j])}</span><span class="p">${m.pop ? m.pop + '人気' : ''}</span><span class="o">${m.odds ? oddsTxt(m.odds) : ''}</span>`; }).join('');
+      const ck = can ? `<button class="ck ${st.sel[i] ? 'on' : ''}" data-ck="${i}" aria-pressed="${!!st.sel[i]}" aria-label="${i + 1}番の買い目を選ぶ"></button>` : '<span></span>';
+      const am = can && st.sel[i] ? `<div class="am"><span>この目に張る</span><span class="ai-amt"><input data-amt="${i}" inputmode="numeric" value="${esc(st.amt[i] || st.bet)}" aria-label="${i + 1}番に張るpt"><small>pt</small></span></div>` : '';
+      return `<div class="lyA${glow.indexOf(i) >= 0 ? ' just' : ''}"><div class="hd">${ck}<span class="m"><i>3連単</i><b>${oddsTxt(mul(k) || b.mul)}</b>倍</span>${dots(b.dots)}</div><div class="gd">${days}</div>${got.length ? `<span class="ai-got">買った ${got.map(x => fmt(x) + 'pt').join('・')}</span>` : ''}${am}</div>`;
+    }).join('');
+    const box = can ? `<div class="bxCtl"><button class="ai-all" data-all="1">${st.sel.every(Boolean) ? '選ぶのをやめる' : '全部選ぶ'}</button><span class="bt"><small>1点あたりまとめて</small><span class="bx"><input data-bet="1" inputmode="numeric" value="${esc(st.bet)}">pt</span></span></div>
+      <div class="bxZ"><div><small>選んだ目</small><b>${sel.length}点</b></div><div><small>合計</small><b>${fmt(tot)}<span>pt</span></b></div><button class="btn gold" data-buy="1" ${ok ? '' : 'disabled'}>${sel.length ? sel.length + '点を買う' : '目を選ぶ'}</button></div>` : '';
+    return `<div class="aihX"><span class="h">買い目（3連単）</span></div><div class="ai-bys" data-key="${key}">${rows}${box}</div>`;
   }
   function aiItem(it, opt) {
     opt = opt || {};
     const res = it.result;
-    const stars = res.conf ? `<div class="ai-conf"><span>自信度</span><b>${'★'.repeat(res.conf.stars)}<i>${'★'.repeat(3 - res.conf.stars)}</i></b></div>` : '';
     const lines = res.think.map((t, i) => `<li${opt.reveal ? ` style="animation-delay:${i * 0.35}s"` : ''}>${esc(t)}</li>`).join('');
     return `<article class="ai-item${opt.reveal ? ' reveal' : ''}" id="ai-${it.model}-${it.effort}">
       <div class="ai-meta">${aiMark(false)}<b>${esc(aiName(it.model))}</b><span>エフォート ${esc(aiEff(it.effort))}</span>${it.pt ? `<span class="pt">${fmt(it.pt)}pt</span>` : ''}</div>
       <details class="ai-think"${opt.open ? ' open' : ''}><summary>考えた過程</summary><ol>${lines}</ol></details>
-      <div class="ai-ans"${opt.reveal ? ` style="animation-delay:${res.think.length * 0.35 + 0.2}s"` : ''}>${aiDays(res)}${aiBuys(res)}${stars}</div>
+      <div class="ai-ans"${opt.reveal ? ` style="animation-delay:${res.think.length * 0.35 + 0.2}s"` : ''}>${aiBuys(it)}</div>
     </article>`;
+  }
+  // 買い目の操作（選ぶ・金額・全部選ぶ・買う）。入力中は描き直してもカーソルを保つ
+  function bindAIBuys() {
+    const A = S.ai;
+    $app.querySelectorAll('.ai-bys').forEach(box => {
+      const key = box.dataset.key, st = A.buy[key], it = A.info.items.find(x => aiKey(x) === key);
+      if (!st || !it) return;
+      const redraw = keep => { renderAI(true); if (keep) { const el = $app.querySelector(`.ai-bys[data-key="${key}"] ${keep.sel}`); if (el) { el.focus(); try { el.setSelectionRange(keep.p, keep.p); } catch (e) {} } } };
+      box.querySelectorAll('[data-ck]').forEach(b => b.onclick = () => { st.sel[+b.dataset.ck] = !st.sel[+b.dataset.ck]; redraw(); });
+      const all = box.querySelector('[data-all]'); if (all) all.onclick = () => { const on = !st.sel.every(Boolean); st.sel = st.sel.map(() => on); redraw(); };
+      const bi = box.querySelector('[data-bet]'); if (bi) bi.oninput = () => { st.bet = bi.value.replace(/\D/g, ''); st.amt = st.amt.map(() => ''); redraw({ sel: '[data-bet]', p: bi.selectionStart }); };
+      box.querySelectorAll('[data-amt]').forEach(el => el.oninput = () => { st.amt[+el.dataset.amt] = el.value.replace(/\D/g, ''); redraw({ sel: `[data-amt="${el.dataset.amt}"]`, p: el.selectionStart }); });
+      const by = box.querySelector('[data-buy]'); if (by) by.onclick = async () => {
+        by.disabled = true;
+        const idx = st.sel.map((x, i) => x ? i : -1).filter(i => i >= 0);
+        const sets = idx.map(i => { const k = it.result.buys[i].picks; return { picks: { 火: [k[0]], 水: [k[1]], 木: [k[2]] }, bet: Number(st.amt[i] || st.bet) }; });
+        const ok = await buySets(sets, 'AI ' + aiName(it.model));
+        if (ok) { st.sel = st.sel.map(() => false); st.amt = st.amt.map(() => ''); A.glow = { key, rows: idx }; renderAI(true); setTimeout(() => { A.glow = null; }, 1500); } else by.disabled = false;
+      };
+    });
   }
   function aiPending(p) {
     return `<article class="ai-item"><div class="ai-meta">${aiMark(true)}<b>${esc(aiName(p.model))}</b><span>エフォート ${esc(aiEff(p.effort))}</span></div>
       <div class="ai-wait"><span id="aiStep">考え中…</span></div></article>`;
   }
-  function renderAI() {
+  function renderAI(keepScroll) {
     const A = S.ai, I = A.info;
+    A.buy = A.buy || {};
+    const cur = S.data.current;
     const price = I.prices[A.model] && I.prices[A.model][A.effort];
     const bought = I.items.find(x => x.model === A.model && x.effort === A.effort);
     const items = I.items.map(it => aiItem(it, it === A.fresh ? { open: true, reveal: true } : {})).join('');
     const sendLbl = bought ? '見る' : price ? `${fmt(price)}pt` : '無料';
     const freeTxt = I.freeUntil ? (() => { const [, mo, d] = I.freeUntil.split('-').map(Number); return `${mo}/${d}まで`; })() : '';
-    const canSend = I.canBuy && !A.pend && (bought || price <= I.balance);
-    $app.innerHTML = `<header class="bar"><div style="display:flex;align-items:center;gap:10px"><button class="ibtn" id="back" aria-label="戻る" style="font-size:22px;padding-bottom:3px">‹</button><b class="sub-title">AI予想</b></div><span class="pts">持ち点<br><b>${fmt(I.balance)}</b> pt</span></header>
+    const canSend = I.canBuy && !A.pend && (bought || price <= S.data.me.balance);
+    $app.innerHTML = `<header class="bar"><div style="display:flex;align-items:center;gap:10px"><button class="ibtn" id="back" aria-label="戻る" style="font-size:22px;padding-bottom:3px">‹</button><b class="sub-title">AI予想</b></div><span class="pts">持ち点<br><b>${fmt(S.data.me.balance)}</b> pt</span></header>
+      ${cur && !cur.closed && !cur.isMyHostWeek ? buyLed(cur) : ''}
       ${freeTxt && I.canBuy ? `<div class="ai-free"><b>期間限定で無料</b><span>${freeTxt}</span></div>` : ''}
       <div class="ai-list">${items}${A.pend ? aiPending(A.pend) : ''}</div>
       <div class="ai-dock">${I.canBuy ? `<div class="ai-comp">
         <div class="ai-prompt">今週の3連単を予想して</div>
         <div class="ai-row"><button class="ai-pill" id="aiPick" aria-haspopup="dialog">${esc(aiName(A.model))}<span>エフォート ${esc(aiEff(A.effort))}</span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button>
         <button class="ai-send" id="aiSend" ${canSend ? '' : 'disabled'} aria-label="${bought ? '買った予想を見る' : esc(sendLbl) + 'で予想してもらう'}"><span>${esc(sendLbl)}</span><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
-        ${!bought && price > I.balance ? '<div class="ai-err">持ち点が足りません。モデルかエフォートを下げてください</div>' : ''}</div>` : `<div class="ai-closed">${esc(I.reason || 'いまはAI予想を買えません')}</div>`}</div>`;
+        ${!bought && price > S.data.me.balance ? '<div class="ai-err">持ち点が足りません。モデルかエフォートを下げてください</div>' : ''}</div>` : `<div class="ai-closed">${esc(I.reason || 'いまはAI予想を買えません')}</div>`}</div>`;
     document.getElementById('back').onclick = () => { S.screen = null; S.ai.fresh = null; render(); window.scrollTo(0, 0); };
     const pk = document.getElementById('aiPick'); if (pk) pk.onclick = openAIPicker;
     const sd = document.getElementById('aiSend'); if (sd) sd.onclick = () => bought ? aiScrollTo(bought) : aiSend();
-    $app.querySelectorAll('[data-use]').forEach(b => b.onclick = () => aiUse(b.dataset.use.split(',').map(Number)));
-    if (A.fresh) { const el = document.getElementById(`ai-${A.fresh.model}-${A.fresh.effort}`); if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' }); A.fresh = null; }
+    bindAIBuys();
+    stickTop();
+    if (A.fresh && !keepScroll) { const el = document.getElementById(`ai-${A.fresh.model}-${A.fresh.effort}`); if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' }); A.fresh = null; }
   }
   function aiScrollTo(it) { const el = document.getElementById(`ai-${it.model}-${it.effort}`); if (el) { el.scrollIntoView({ block: 'start', behavior: 'smooth' }); el.querySelector('details').open = true; } }
   // モデルとエフォートを選ぶ（Claude のモデル選びのような形）
@@ -938,17 +1117,6 @@
     } catch (e) {} finally { clearInterval(tick); A.pend = null; }
     if (S.screen === 'ai') renderAI();
   }
-  // AIの買い目を、予想タブの選択に入れる（決定は自分で押す）
-  function aiUse(picks) {
-    const v = S.data.current; if (!v) return;
-    if (v.myPred) S.editing = true;
-    S.editingInit = v.weekId + (S.editing ? 'e' : '');
-    S.picks = { 火: picks[0], 水: picks[1], 木: picks[2] };
-    if (!S.bet) S.bet = v.myPred ? String(v.myPred.bet) : String(Math.min(1000, Math.floor(S.data.me.balance / 100) * 100) || '');
-    S.screen = null; S.tab = 'yoso'; S.ai.fresh = null; render(); window.scrollTo(0, 0);
-    toast('AIの買い目を入れました');
-  }
-
   // ---------- サブ画面 ----------
   function subBar(title) { return `<header class="bar" style="justify-content:flex-start"><button class="ibtn" id="back" aria-label="戻る" style="font-size:22px;padding-bottom:3px">‹</button><b class="sub-title">${title}</b></header>`; }
   async function openHistory() {

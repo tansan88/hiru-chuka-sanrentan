@@ -5,17 +5,18 @@ const emu = require('./emu/gas_emu.js');
 let pass = 0, fail = 0; const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log('FAIL', m, x === undefined ? '' : JSON.stringify(x)); } };
 const mk = code => { const f = path.join(os.tmpdir(), 'code_' + process.pid + '_' + Math.random().toString(36).slice(2) + '.gs'); fs.writeFileSync(f, code); return emu(f); };
 const src = fs.readFileSync(path.join(__dirname, '../gas/Code.gs'), 'utf8');
-ok(/const MIN_APP_VERSION = 0;/.test(src), 'いまは版を求めない（古い画面もそのまま使える）');
+ok(/const MIN_APP_VERSION = 3;/.test(src), 'いまは版3から（複数券）');
 const callOf = ctx => (action, o = {}) => { ctx.__reset(); return JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(Object.assign({ action }, o)) } }).content); };
-// いまの設定：版を送らない古い画面でも使える
+const callV = ctx => (action, o = {}) => callOf(ctx)(action, Object.assign({ v: 3 }, o));
+// 版を求めない設定にしたとき：版を送らない古い画面でも使える
 {
-  const { ctx } = emu(path.join(__dirname, '../gas/Code.gs')); const call = callOf(ctx); ctx.初期設定();
+  const { ctx } = mk(src.replace('const MIN_APP_VERSION = 3;', 'const MIN_APP_VERSION = 0;')); const call = callOf(ctx); ctx.初期設定();
   const t = call('register', { nick: 'a', pass: '1111' }).token;
   ok(call('state', { token: t }).ok, '版なしでも使える');
 }
 // 版を上げたとき
 {
-  const { ctx } = mk(src.replace('const MIN_APP_VERSION = 0;', 'const MIN_APP_VERSION = 3;')); const call = callOf(ctx); ctx.初期設定();
+  const { ctx } = mk(src); const call = callOf(ctx); ctx.初期設定();
   let r = call('register', { nick: 'b', pass: '1111' });
   ok(!r.ok && r.reload === true && /開き直して/.test(r.error), '版なしは開き直し', r);
   r = call('register', { nick: 'b', pass: '1111', v: 2 });
@@ -28,7 +29,7 @@ const callOf = ctx => (action, o = {}) => { ctx.__reset(); return JSON.parse(ctx
 }
 // テスト用スプレッドシートからのメールには印
 {
-  const { ctx, SS, G } = emu(path.join(__dirname, '../gas/Code.gs')); const call = callOf(ctx); ctx.初期設定();
+  const { ctx, SS, G } = emu(path.join(__dirname, '../gas/Code.gs')); const call = callV(ctx); ctx.初期設定();
   const t = call('register', { nick: 'c', pass: '1111' }).token;
   const m0 = G.MailApp.sent.length;
   call('contact', { token: t, kind: '質問', body: '本番からの問い合わせ' });

@@ -4,7 +4,7 @@ const path = require('path');
 const { ctx, SS, G } = require('./emu/gas_emu.js')(path.join(__dirname, '../gas/Code.gs'));
 let pass = 0, fail = 0; const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log('FAIL', m, x === undefined ? '' : JSON.stringify(x)); } };
 const realNow = Date.now; let shift = 0; Date.now = () => realNow() + shift;
-const call = (action, o = {}) => { ctx.__reset(); return JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(Object.assign({ action }, o)) } }).content); };
+const call = (action, o = {}) => { ctx.__reset(); return JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(Object.assign({ action, v: 3 }, o)) } }).content); };
 const rows = () => (SS.getSheetByName('問い合わせ') ? SS.getSheetByName('問い合わせ').data.slice(1) : []);
 ctx.初期設定();
 const t = call('register', { nick: 'たろう', pass: '1111' }).token;

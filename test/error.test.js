@@ -3,7 +3,7 @@ process.env.TZ = 'Asia/Tokyo';
 const path = require('path');
 const { ctx, SS, G } = require('./emu/gas_emu.js')(path.join(__dirname, '../gas/Code.gs'));
 let pass = 0, fail = 0; const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log('FAIL', m, x === undefined ? '' : JSON.stringify(x)); } };
-const call = (action, o = {}) => { ctx.__reset(); return JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(Object.assign({ action }, o)) } }).content); };
+const call = (action, o = {}) => { ctx.__reset(); return JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(Object.assign({ action, v: 3 }, o)) } }).content); };
 const rows = () => (SS.getSheetByName('エラー') ? SS.getSheetByName('エラー').data.slice(1) : []);
 const props = G.PropertiesService.getScriptProperties();
 ctx.初期設定();

@@ -1,5 +1,5 @@
 const U='http://localhost:'+(process.env.EMU_PORT||8790)+'/';
-const A=async(a,o={})=>(await fetch(U,{method:'POST',body:JSON.stringify(Object.assign({action:a},o))})).json();
+const A=async(a,o={})=>(await fetch(U,{method:'POST',body:JSON.stringify(Object.assign({action:a,v:3},o))})).json();
 const X=async c=>(await (await fetch(U+'__exec',{method:'POST',body:c})).json());
 let pass=0,fail=0;const ok=(c,m,x)=>{if(c)pass++;else{fail++;console.log('FAIL',m,JSON.stringify(x||''))}};
 (async()=>{

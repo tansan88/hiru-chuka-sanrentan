@@ -22,7 +22,8 @@
     c.restore();
   }
   /*
-   * data = { title, rows:[{day,name,odds,kind}], hits, cancelled, bet, net }
+   * data = { title, rows:[{day,name,odds,kind}], hits, cancelled, bet, net, mode }
+   * mode: summary（まとめ）／best（ベストの1組：bet＝1点のpt、pay＝その組の配当）／list（買い目の一覧：list＝[{text,points,bet,pay,win}]、more＝残りの組数）
    */
   async function draw(data) {
     try { await document.fonts.ready; } catch (e) {}
@@ -51,24 +52,38 @@
     c.fillStyle = 'rgba(255,255,255,.85)'; c.font = '700 13px "Noto Sans JP", sans-serif'; c.fillText(data.title, 40, 96);
     const head = data.cancelled ? '中止のため返還' : t === 'hit' ? '3連単 的中！' : data.hits > 0 ? data.hits + '日的中' : '全部はずれ…';
     c.fillStyle = t === 'hit' ? '#F7B500' : '#FFFFFF'; c.font = '900 ' + (t === 'hit' ? 32 : 28) + 'px "Noto Sans JP", sans-serif'; c.fillText(head, 40, 130);
-    // 3日分
+    // 3日分（「買い目の一覧」のときは、配当の大きい順に組を並べる）
     let y = 146;
-    data.rows.forEach(r => {
-      const on = r.kind === 'hit';
-      c.fillStyle = on ? 'rgba(255,255,255,.12)' : 'rgba(0,0,0,.15)'; rr(c, 40, y, 310, 36, 6); c.fill();
-      const col = on ? '#FFFFFF' : '#B9D1C0';
-      c.fillStyle = col; c.font = '900 16px "Noto Sans JP", sans-serif'; c.fillText(r.day, 52, y + 24);
-      c.font = '700 16px "Noto Sans JP", sans-serif';
-      let nm = r.name; while (c.measureText(nm).width > 170 && nm.length > 1) nm = nm.slice(0, -1); if (nm !== r.name) nm += '…';
-      c.fillText(nm, 88, y + 24);
-      if (r.odds) { c.font = '700 13px "Noto Sans JP", sans-serif'; c.textAlign = 'right'; c.fillText(r.odds.toFixed(1) + '倍', 314, y + 23); c.textAlign = 'left'; }
-      mark(c, 337, y + 18, r.kind);
-      y += 41;
-    });
+    if (data.mode === 'list') {
+      (data.list || []).forEach(r => {
+        c.fillStyle = r.win ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.15)'; rr(c, 40, y, 310, 26, 5); c.fill();
+        c.fillStyle = r.win ? '#FFFFFF' : '#D6E6DA'; c.font = '700 11px "Noto Sans JP", sans-serif'; c.textAlign = 'left';
+        let tx = r.text; while (c.measureText(tx).width > 200 && tx.length > 1) tx = tx.slice(0, -1); if (tx !== r.text) tx += '…';
+        c.fillText(tx, 50, y + 17);
+        c.textAlign = 'right'; c.fillStyle = r.win ? '#F7B500' : '#FFFFFF'; c.font = '900 13px "Noto Sans JP", sans-serif';
+        c.fillText(r.pay > 0 ? '+' + r.pay.toLocaleString() : '0', 340, y + 18); c.textAlign = 'left';
+        y += 30;
+      });
+      if (data.more) { c.fillStyle = 'rgba(255,255,255,.7)'; c.font = '400 11px "Noto Sans JP", sans-serif'; c.fillText('ほか ' + data.more + '組', 44, y + 10); }
+    } else {
+      data.rows.forEach(r => {
+        const on = r.kind === 'hit';
+        c.fillStyle = on ? 'rgba(255,255,255,.12)' : 'rgba(0,0,0,.15)'; rr(c, 40, y, 310, 36, 6); c.fill();
+        const col = on ? '#FFFFFF' : '#B9D1C0';
+        c.fillStyle = col; c.font = '900 16px "Noto Sans JP", sans-serif'; c.fillText(r.day, 52, y + 24);
+        c.font = '700 16px "Noto Sans JP", sans-serif';
+        let nm = r.name; while (c.measureText(nm).width > 170 && nm.length > 1) nm = nm.slice(0, -1); if (nm !== r.name) nm += '…';
+        c.fillText(nm, 88, y + 24);
+        if (r.odds) { c.font = '700 13px "Noto Sans JP", sans-serif'; c.textAlign = 'right'; c.fillText(r.odds.toFixed(1) + '倍', 314, y + 23); c.textAlign = 'left'; }
+        mark(c, 337, y + 18, r.kind);
+        y += 41;
+      });
+    }
     // 収支
     c.textAlign = 'right'; c.fillStyle = 'rgba(255,255,255,.85)'; c.font = '400 12px "Noto Sans JP", sans-serif';
-    c.fillText('使った ' + data.bet.toLocaleString() + 'pt ／ 収支', 350, 318);
-    const netTxt = data.cancelled ? '±0' : (data.net > 0 ? '+' : data.net < 0 ? '−' : '±') + Math.abs(data.net).toLocaleString();
+    const best = data.mode === 'best';
+    c.fillText(best ? '1点 ' + data.bet.toLocaleString() + 'pt ／ 配当' : '使った ' + data.bet.toLocaleString() + 'pt ／ 収支', 350, 318);
+    const netTxt = best ? '+' + Number(data.pay || 0).toLocaleString() : data.cancelled ? '±0' : (data.net > 0 ? '+' : data.net < 0 ? '−' : '±') + Math.abs(data.net).toLocaleString();
     c.font = '900 ' + (t === 'hit' ? 30 : 26) + 'px "Noto Sans JP", sans-serif';
     c.save(); c.font = '900 14px "Noto Sans JP", sans-serif'; const ptW = c.measureText('pt').width + 4; c.restore();
     c.fillStyle = t === 'hit' ? '#F7B500' : '#FFFFFF'; c.fillText(netTxt, 350 - ptW, 350);

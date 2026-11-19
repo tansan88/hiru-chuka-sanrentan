@@ -5,7 +5,7 @@ const { ctx, SS, G } = require('./emu/gas_emu.js')(path.join(__dirname, '../gas/
 let pass = 0, fail = 0; const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log('FAIL', m, x === undefined ? '' : JSON.stringify(x)); } };
 const realNow = Date.now; let shift = 0; Date.now = () => realNow() + shift;
 const DAY = 86400000;
-const call = (action, o = {}) => { ctx.__reset(); return JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(Object.assign({ action }, o)) } }).content); };
+const call = (action, o = {}) => { ctx.__reset(); return JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(Object.assign({ action, v: 3 }, o)) } }).content); };
 const props = G.PropertiesService.getScriptProperties();
 ctx.初期設定();
 const t0 = call('register', { nick: 'a', pass: '1111' }).token;

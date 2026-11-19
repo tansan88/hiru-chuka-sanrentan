@@ -108,7 +108,8 @@ function doGet(e) {
 
 // 画面の版がこれより古いと「開き直してください」と返す。古い画面と食い違う変更をしたときだけ上げる
 // （画面の版は app.js の APP_VERSION。版を送らない古い画面は 0 として扱う）
-const MIN_APP_VERSION = 0;
+// 3：複数券（フォーメーション）。古い画面のまま買うと1組ずつ足されてしまうので、開き直してもらう
+const MIN_APP_VERSION = 3;
 function doPost(e) {
   const t0 = Date.now();
   resetCache_();
@@ -863,7 +864,10 @@ function aiPredict_(db, w, modelId, effortId) {
     days[d] = picks.map((i, k) => ({ mark: ['◎', '○', '▲'][k], waku: cur[i].waku, name: cur[i].name, p: pct(M.p[d][i]), odds: cur[i].odds }));
   });
   const combos = aiCombos_(cur, M.p, M.rep, lv >= 2);
-  const buys = combos.slice(0, E.buys).map(x => ({ picks: x.i.map(i => cur[i].waku), names: x.i.map(i => cur[i].name), p: Math.round(x.pr * 10000) / 100, mul: r1(x.mul) }));
+  // AIの自信（買い目ごと・5段階）：人気順だけで読んだときより何倍当たりやすいか（データを見て段階は調整する）
+  const P0 = aiModel_([], cur, 0, null).p;
+  const dotsOf = x => { const base = P0.火[x.i[0]] * P0.水[x.i[1]] * P0.木[x.i[2]] || 1e-9, k = x.pr / base; return k >= 2.2 ? 5 : k >= 1.6 ? 4 : k >= 1.2 ? 3 : k >= 0.9 ? 2 : 1; };
+  const buys = combos.slice(0, E.buys).map(x => ({ picks: x.i.map(i => cur[i].waku), names: x.i.map(i => cur[i].name), p: Math.round(x.pr * 10000) / 100, mul: r1(x.mul), dots: dotsOf(x) }));
   // 自信度（エフォート高だけ）：読み直した200回のうち、◎と同じものを1位にした割合
   let conf = null;
   if (bootTop.length) {
