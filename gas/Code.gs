@@ -637,7 +637,7 @@ const API = {
 const AI_MODELS = [
   { id: 'haiku', name: 'Hakkaku', desc: '人気の順番から読む', key: 'AI予想の値段（Hakkaku）', price: 200 },
   { id: 'sonnet', name: 'Shumainet', desc: '料理・曜日ごとの出やすさも読む', key: 'AI予想の値段（Shumainet）', price: 500 },
-  { id: 'opus', name: 'Octopus', desc: 'ホストの好みと倍率のお得さまで読む', key: 'AI予想の値段（Octopus）', price: 1000 },
+  { id: 'opus', name: 'Octopus', desc: 'ホストの好みと穴まで読む', key: 'AI予想の値段（Octopus）', price: 1000 },
 ];
 const AI_EFFORTS = [
   { id: 'low', name: '低', desc: '直近4週・買い目1点', key: '', mul: 1, weeks: 4, buys: 1, lines: 2 },

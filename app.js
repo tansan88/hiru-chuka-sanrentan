@@ -719,7 +719,7 @@
       </div>
       <div class="ptbox"><b style="font-size:14px">AI予想</b>
         <div style="color:var(--sub);font-size:12px">公開した出馬表・いまの倍率・これまでの結果・食事の記録から、今週の3連単を統計で読みます。外れても恨みっこなし。</div>
-        <div><b>モデル</b>　何を読むか<div class="ai-rl"><span><b>Hakkaku</b>人気順の当たりやすさだけ</span><span><b>Shumainet</b>＋料理ごとの出やすさ・曜日の傾向・同じ料理の続きやすさ・月曜に食べたもの</span><span><b>Octopus</b>＋担当ホストの週の傾向・よく食べるもの・倍率の妙味（当たりやすさの割に配当がよいか）</span></div></div>
+        <div><b>モデル</b>　何を読むか<div class="ai-rl"><span><b>Hakkaku</b>人気順の当たりやすさだけ</span><span><b>Shumainet</b>＋料理ごとの出やすさ・曜日の傾向・同じ料理の続きやすさ・月曜に食べたもの</span><span><b>Octopus</b>＋担当ホストの週の傾向・よく食べるもの・穴（当たりやすさの割に倍率が高い品）</span></div></div>
         <div><b>エフォート</b>　どこまで読むか<div class="ai-rl"><span><b>低</b>直近4週を読む。買い目1点</span><span><b>中</b>これまでの週を全部読む。買い目3点</span><span><b>高</b>全部の週を200通りに入れ替えて読み直し、その平均で予想（ぶれにくい）。自信度つき。買い目5点</span></div></div>
         <div style="color:var(--sub);font-size:12px">値段はモデル×エフォートで決まり、選ぶ画面に出ます（期間限定で無料の間は0pt）。同じモデル×エフォートは1週に1回で、もう一度送ると前の予想が出ます（ptはかかりません）。担当ホストと締切後は買えません（買った予想は見られます）。買った予想は自分にしか見えません。</div>
       </div>
