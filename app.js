@@ -717,6 +717,12 @@
         <div style="color:var(--sub);font-size:12px">倍率は、ホストが並べた順の<b style="color:var(--ink)">基本の倍率</b>（下の表）を、<b style="color:var(--ink)">みんなが使ったpt</b>で補正したものです。ptが多く集まった品は下がり、少ない品は上がります（基本の0.6〜1.6倍の範囲）。「○番人気」は今の倍率の低い順で、<b style="color:var(--ink)">締切の時点の倍率</b>で確定します。</div>
         <div class="oddsg">${o.slice(0, 8).map((x, i) => `<span>${i + 1}番目 <b>${Number.isInteger(x) && x >= 10 ? x : oddsTxt(x)}</b></span>`).join('')}</div>
       </div>
+      <div class="ptbox"><b style="font-size:14px">AI予想</b>
+        <div style="color:var(--sub);font-size:12px">公開した出馬表・いまの倍率・これまでの結果・食事の記録から、今週の3連単を統計で読みます。外れても恨みっこなし。</div>
+        <div><b>モデル</b>　何を読むか<div class="ai-rl"><span><b>Hakkaku</b>人気順の当たりやすさだけ</span><span><b>Shumainet</b>＋料理ごとの出やすさ・曜日の傾向・同じ料理の続きやすさ・月曜に食べたもの</span><span><b>Octopus</b>＋担当ホストの週の傾向・よく食べるもの・倍率の妙味（当たりやすさの割に配当がよいか）</span></div></div>
+        <div><b>エフォート</b>　どこまで読むか<div class="ai-rl"><span><b>低</b>直近4週を読む。買い目1点</span><span><b>中</b>これまでの週を全部読む。買い目3点</span><span><b>高</b>全部の週を200通りに入れ替えて読み直し、その平均で予想（ぶれにくい）。自信度つき。買い目5点</span></div></div>
+        <div style="color:var(--sub);font-size:12px">値段はモデル×エフォートで決まり、選ぶ画面に出ます（期間限定で無料の間は0pt）。同じモデル×エフォートは1週に1回で、もう一度送ると前の予想が出ます（ptはかかりません）。担当ホストと締切後は買えません（買った予想は見られます）。買った予想は自分にしか見えません。</div>
+      </div>
       <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--sub)">
         <div><b style="color:var(--ink)">中止の日</b>　メニュー外を食べた日や休みの日がある週は、使ったptを全額返します。当たり・はずれは記録だけ残ります。</div>
         <div><b style="color:var(--ink)">持ち点が100ptを切ったら</b>　「ptを補充する」から、豆知識クイズ（満額＋${fmt(fullPt('quiz'))}pt）かレビュー（満額＋${fmt(fullPt('review'))}pt）で補充できます。${esc(refillRuleTxt())}</div>
@@ -862,12 +868,12 @@
   function aiItem(it, opt) {
     opt = opt || {};
     const res = it.result;
-    const stars = res.conf ? `<div class="ai-conf"><span>自信度</span><b>${'★'.repeat(res.conf.stars)}<i>${'★'.repeat(3 - res.conf.stars)}</i></b><small>200通りの読み直しで◎が1位だった割合 ${res.conf.pct}%</small></div>` : '';
+    const stars = res.conf ? `<div class="ai-conf"><span>自信度</span><b>${'★'.repeat(res.conf.stars)}<i>${'★'.repeat(3 - res.conf.stars)}</i></b></div>` : '';
     const lines = res.think.map((t, i) => `<li${opt.reveal ? ` style="animation-delay:${i * 0.35}s"` : ''}>${esc(t)}</li>`).join('');
     return `<article class="ai-item${opt.reveal ? ' reveal' : ''}" id="ai-${it.model}-${it.effort}">
       <div class="ai-meta">${aiMark(false)}<b>${esc(aiName(it.model))}</b><span>エフォート ${esc(aiEff(it.effort))}</span>${it.pt ? `<span class="pt">${fmt(it.pt)}pt</span>` : ''}</div>
       <details class="ai-think"${opt.open ? ' open' : ''}><summary>考えた過程</summary><ol>${lines}</ol></details>
-      <div class="ai-ans"${opt.reveal ? ` style="animation-delay:${res.think.length * 0.35 + 0.2}s"` : ''}>${aiDays(res)}${aiBuys(res)}${stars}<p class="ai-foot">データから読んだ予想です。外れても恨みっこなし。</p></div>
+      <div class="ai-ans"${opt.reveal ? ` style="animation-delay:${res.think.length * 0.35 + 0.2}s"` : ''}>${aiDays(res)}${aiBuys(res)}${stars}</div>
     </article>`;
   }
   function aiPending(p) {
@@ -879,13 +885,12 @@
     const price = I.prices[A.model] && I.prices[A.model][A.effort];
     const bought = I.items.find(x => x.model === A.model && x.effort === A.effort);
     const items = I.items.map(it => aiItem(it, it === A.fresh ? { open: true, reveal: true } : {})).join('');
-    const intro = I.items.length || A.pend ? '' : `<div class="ai-intro">${chefImg('smile')}<div><b>今週の3連単を、データで読みます</b><span>下でモデルとエフォートを選んで送ってください。モデルが上のものほど多くのことを読み、エフォートが高いほどじっくり読みます。外れても恨みっこなし。</span><small>読むのは、公開した出馬表・いまの倍率・これまでの結果だけです</small></div></div>`;
     const sendLbl = bought ? '見る' : price ? `${fmt(price)}pt` : '無料';
     const freeTxt = I.freeUntil ? (() => { const [, mo, d] = I.freeUntil.split('-').map(Number); return `${mo}/${d}まで`; })() : '';
     const canSend = I.canBuy && !A.pend && (bought || price <= I.balance);
     $app.innerHTML = `<header class="bar"><div style="display:flex;align-items:center;gap:10px"><button class="ibtn" id="back" aria-label="戻る" style="font-size:22px;padding-bottom:3px">‹</button><b class="sub-title">AI予想</b></div><span class="pts">持ち点<br><b>${fmt(I.balance)}</b> pt</span></header>
-      ${freeTxt && I.canBuy ? `<div class="ai-free"><b>期間限定で無料</b><span>${freeTxt}、どのモデル・エフォートもptを使わずに試せます</span></div>` : ''}
-      <div class="ai-list">${intro}${items}${A.pend ? aiPending(A.pend) : ''}</div>
+      ${freeTxt && I.canBuy ? `<div class="ai-free"><b>期間限定で無料</b><span>${freeTxt}</span></div>` : ''}
+      <div class="ai-list">${items}${A.pend ? aiPending(A.pend) : ''}</div>
       <div class="ai-dock">${I.canBuy ? `<div class="ai-comp">
         <div class="ai-prompt">今週の3連単を予想して</div>
         <div class="ai-row"><button class="ai-pill" id="aiPick" aria-haspopup="dialog">${esc(aiName(A.model))}<span>エフォート ${esc(aiEff(A.effort))}</span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button>

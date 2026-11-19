@@ -635,14 +635,14 @@ const API = {
 // 中身は統計（外のAIは呼ばない）。使うのは公開した出馬表・いまの倍率・確定した週の結果だけ（ホストだけが知る情報は混ぜない）
 // モデル＝何を見て読むか、エフォート＝どこまで深く読むか
 const AI_MODELS = [
-  { id: 'haiku', name: 'Hakkaku', desc: 'すばやく軽く。人気順の当たりやすさだけで読む', key: 'AI予想の値段（Hakkaku）', price: 200 },
-  { id: 'sonnet', name: 'Shumainet', desc: 'バランス型。料理ごとの出やすさ・曜日の傾向・同じ料理の続きやすさも読む', key: 'AI予想の値段（Shumainet）', price: 500 },
-  { id: 'opus', name: 'Octopus', desc: 'いちばん深い。担当ホストの週の傾向と、倍率の妙味（当たりやすさの割に配当がよいか）まで、8本の足で手広く読む', key: 'AI予想の値段（Octopus）', price: 1000 },
+  { id: 'haiku', name: 'Hakkaku', desc: 'すばやく軽く', key: 'AI予想の値段（Hakkaku）', price: 200 },
+  { id: 'sonnet', name: 'Shumainet', desc: 'バランス型', key: 'AI予想の値段（Shumainet）', price: 500 },
+  { id: 'opus', name: 'Octopus', desc: 'いちばん深く、8本の足で手広く', key: 'AI予想の値段（Octopus）', price: 1000 },
 ];
 const AI_EFFORTS = [
-  { id: 'low', name: '低', desc: '直近4週だけ。買い目1点', key: '', mul: 1, weeks: 4, buys: 1, lines: 2 },
-  { id: 'mid', name: '中', desc: 'これまでの週を全部。買い目3点', key: 'AI予想のエフォート倍率（中）', mul: 2, weeks: 0, buys: 3, lines: 4 },
-  { id: 'high', name: '高', desc: '全部の週を200通りに入れ替えて読み直し、その平均で予想する（ぶれにくい）。自信度も出す。買い目5点', key: 'AI予想のエフォート倍率（高）', mul: 3, weeks: 0, buys: 5, lines: 99 },
+  { id: 'low', name: '低', desc: '直近4週・買い目1点', key: '', mul: 1, weeks: 4, buys: 1, lines: 2 },
+  { id: 'mid', name: '中', desc: '全部の週・買い目3点', key: 'AI予想のエフォート倍率（中）', mul: 2, weeks: 0, buys: 3, lines: 4 },
+  { id: 'high', name: '高', desc: '200通りに読み直す・買い目5点', key: 'AI予想のエフォート倍率（高）', mul: 3, weeks: 0, buys: 5, lines: 99 },
 ];
 const AI_BANDS = ['本命（1・2番人気）', '中穴（3〜5番人気）', '大穴（6番人気から）'];
 // 無料期間（設定の日付の終わりまで）。期間中なら終わりの日付、そうでなければ ''
