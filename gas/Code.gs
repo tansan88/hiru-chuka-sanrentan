@@ -100,7 +100,7 @@ function doGet(e) {
     try { const at = lastBackupAt_(); h.lastBackupAt = at ? at.toISOString() : null; } catch (err) { h.lastBackupAt = null; h.backupError = String(err && err.message || err).slice(0, 200); }
     return json_(h);
   }
-  // ?check=gemini … テスト環境だけ。Gemini のキーが使えるかと、使えるモデルを確かめる（結果は10分覚えておく）
+  // ?check=gemini … テスト環境だけ。Gemini のキーが使えるかと、使えるモデルを確かめる（結果は1分覚えておく）
   if (e && e.parameter && e.parameter.check === 'gemini' && envSuffix_()) return json_(geminiCheck_());
   return json_({ ok: true, app: '昼中華3連単' });
 }
@@ -1715,6 +1715,6 @@ function geminiCheck_() {
       out.tries.push(t);
     });
   } catch (err) { out.ok = false; out.error = String(err && err.message || err).slice(0, 300); }
-  cache.put('geminiCheck2', JSON.stringify(out), 600);
+  cache.put('geminiCheck2', JSON.stringify(out), 60);
   return out;
 }
