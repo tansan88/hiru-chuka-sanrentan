@@ -911,7 +911,6 @@
       const box = $layer.querySelector('.ai-pk'); if (!box) return;
       box.innerHTML = `<div class="ai-sec">モデル</div>${I.models.map(x => `<button class="ai-opt${x.id === m ? ' on' : ''}" data-m="${x.id}"><span class="t"><b>${esc(x.name)}</b><small>${esc(x.desc)}</small></span><span class="p">${I.prices[x.id][e] ? fmt(I.prices[x.id][e]) + 'pt' : `<b class="fr">無料</b><s>${fmt(I.basePrices[x.id][e])}pt</s>`}</span><i class="ck" aria-hidden="true"></i></button>`).join('')}
         <div class="ai-sec">エフォート</div><div class="ai-seg" role="radiogroup">${I.efforts.map(x => `<button role="radio" aria-checked="${x.id === e}" class="${x.id === e ? 'on' : ''}" data-e="${x.id}">${esc(x.name)}</button>`).join('')}</div>
-        <p class="ai-edesc">${esc((I.efforts.find(x => x.id === e) || {}).desc || '')}</p>
         <div style="padding:6px 16px 0"><button class="btn gold block" id="aiOk">${esc(aiName(m))}・エフォート ${esc(aiEff(e))}（${I.prices[m][e] ? fmt(I.prices[m][e]) + 'pt' : '無料'}）</button></div>`;
       box.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { m = b.dataset.m; draw(); });
       box.querySelectorAll('[data-e]').forEach(b => b.onclick = () => { e = b.dataset.e; draw(); });
