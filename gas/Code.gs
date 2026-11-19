@@ -1816,12 +1816,12 @@ function geminiCheck_() {
   out.groqKeySet = !!gk;
   if (gk) {
     out.groq = [];
-    ['openai/gpt-oss-120b', 'llama-3.3-70b-versatile'].forEach(n => {
+    ['openai/gpt-oss-120b', 'qwen/qwen3.8-27b'].forEach(n => {
       try {
         const t0 = Date.now();
         const g = UrlFetchApp.fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'post', contentType: 'application/json', headers: { Authorization: 'Bearer ' + gk }, muteHttpExceptions: true,
-          payload: JSON.stringify({ model: n, messages: [{ role: 'user', content: '昼のランチ予想ゲームです。水曜に天津飯が来る確率は41.0%、倍率は7.4倍です。この数字だけを使って、ひとことで答えてください：水曜に天津飯は来そう？' }], max_tokens: 200 }),
+          payload: JSON.stringify({ model: n, messages: [{ role: 'user', content: '昼のランチ予想ゲームです。水曜に天津飯が来る確率は41.0%、倍率は7.4倍です。水曜のメニューの中では天津飯がいちばん来やすい品です。この数字だけを使って、ひとことで答えてください：水曜に天津飯は来そう？' }], max_tokens: 200 }),
         });
         const b = JSON.parse(g.getContentText());
         const t = { model: n, status: g.getResponseCode(), ms: Date.now() - t0 };
