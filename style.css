@@ -639,7 +639,3 @@ input[type=date]:disabled{color:var(--sub);background:var(--bg)}
 .ai-opt .p .fr{color:var(--red);font-size:14px;font-weight:900}
 .ai-opt .p s{font-size:11px;color:var(--mute);font-weight:500}
 .ai-mark{flex:none}
-.ai-mark g{transform-box:view-box;transform-origin:50px 50px}
-.ai-mark.on g{animation:aiStep 2.4s cubic-bezier(.7,0,.3,1) infinite}
-@keyframes aiStep{0%,15%{transform:rotate(0)}25%,40%{transform:rotate(90deg)}50%,65%{transform:rotate(180deg)}75%,90%{transform:rotate(270deg)}100%{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){.ai-mark.on g{animation:none}}

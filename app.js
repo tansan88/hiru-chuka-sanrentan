@@ -800,9 +800,35 @@
   // モデル＝何を見て読むか、エフォート＝どこまで深く読むか。中身は統計（サーバーで計算）
   const AI_WAIT = { low: 1400, mid: 2800, high: 4800 }; // 考え中を見せる最短の時間
   const AI_STEPS = ['出馬表を読んでいます', '過去の結果を数えています', '曜日ごとの出方を見ています', '倍率と見比べています', '買い目を絞っています'];
-  // AIのマーク：4枚の菱形（碧・山吹・紅・青）。考え中だけ90°ずつ組み替わる
+  // AIのマーク：4枚の菱形（碧・山吹・紅・青）。止まっているときは手裏剣の形
+  // 考え中（.on）だけ動く：手裏剣で2周 → 4枚が飛び出し、輪の上を回りながら1枚ずつ自転 → 集まって手裏剣に（6秒でくり返す）
+  const AI_COL = ['#00A86B', '#FFC400', '#FF4D3F', '#3D7BFF'];
+  const aiPlace = (r, ang, rot, sc) => { const a = ang * Math.PI / 180; return `translate(${(50 + r * Math.sin(a)).toFixed(2)} ${(50 - r * Math.cos(a)).toFixed(2)}) rotate(${rot.toFixed(1)}) scale(${sc.toFixed(3)})`; };
   function aiMark(on) {
-    return `<svg class="ai-mark${on ? ' on' : ''}" width="26" height="26" viewBox="0 0 100 100" aria-hidden="true"><g>${['#00A86B', '#FFC400', '#FF4D3F', '#3D7BFF'].map((c, i) => `<path d="M50 50l11-24 11 24-11 24z" transform="rotate(${i * 90} 50 50) translate(-11 -24)" fill="${c}"/>`).join('')}</g></svg>`;
+    if (on) aiSpin();
+    return `<svg class="ai-mark${on ? ' on' : ''}" width="26" height="26" viewBox="0 0 100 100" aria-hidden="true">${AI_COL.map((c, i) => `<path d="M0 -24L11 0L0 24L-11 0Z" transform="${aiPlace(24, i * 90, i * 90, 1)}" fill="${c}"/>`).join('')}</svg>`;
+  }
+  const aiEase = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  const aiSeg = (t, a, b) => Math.min(1, Math.max(0, (t - a) / (b - a)));
+  function aiPose(t, i) {
+    const a = i * 90;
+    if (t < 1.6) { const g = aiEase(aiSeg(t, 0, 1.6)) * 720; return aiPlace(24, a + g, a + g, 1); }
+    const k = t < 2.2 ? aiEase(aiSeg(t, 1.6, 2.2)) : t < 4.4 ? 1 : 1 - aiEase(aiSeg(t, 4.4, 5.1));
+    const c = aiEase(aiSeg(t, 2.2, 4.4));
+    return aiPlace(24 + 10 * k, a + c * 360, a + c * 1080 * k, 1 - .4 * k);
+  }
+  let aiRaf = 0, aiT0 = 0;
+  function aiSpin() {
+    if (aiRaf || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+    aiT0 = aiT0 || performance.now();
+    const step = now => {
+      const marks = document.querySelectorAll('.ai-mark.on');
+      if (!marks.length) { aiRaf = 0; aiT0 = 0; return; }
+      const t = ((now - aiT0) / 1000) % 6;
+      marks.forEach(m => m.querySelectorAll('path').forEach((p, i) => p.setAttribute('transform', aiPose(t, i))));
+      aiRaf = requestAnimationFrame(step);
+    };
+    aiRaf = requestAnimationFrame(step);
   }
   function aiEntry(v) {
     return `<button class="ai-entry" data-act="ai">${aiMark(false)}<span class="t"><b>AI予想</b><small>${v.closed ? '買った予想を見る' : 'モデルとエフォートを選んで、予想してもらう'}</small></span><span class="go" aria-hidden="true">›</span></button>`;
