@@ -60,7 +60,7 @@ try {
   ok(/対象ではありません/.test(r.text), '火〜木以外の曜日', r);
   r = ask('麻婆豆腐と回鍋肉ならどっちが来やすいかな、理由も教えて');
   ok(r.kind === 'cmp' && /麻婆豆腐（[\d.]+% 対 [\d.]+%）/.test(r.text), '2つの品をくらべる', r);
-  r = ask('昼の中華で同じ料理が続くことってある？');
+  r = ask('中華って好き？');
   ok(r.kind === 'free' && r.pend, 'AIに回す質問は、先に数字の答えと受付番号', r);
   const ph = call('aiPhrase', { token: g, id: r.pend });
   ok(ph.ok && ph.text === '', 'キーがなければAIの言い回しは空（数字の答えのまま）', ph);

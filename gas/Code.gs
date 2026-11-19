@@ -1001,7 +1001,7 @@ const AI_BLOCK_ = [
 ];
 function aiBadQ_(q) { for (let i = 0; i < AI_BLOCK_.length; i++) if (AI_BLOCK_[i][1].test(q)) return { kind: 'block', why: AI_BLOCK_[i][0], text: AI_BLOCK_[i][2] + (AI_BLOCK_[i][0] === 'self' ? '' : '昼中華の予想のことなら答えられます') }; return null; }
 // 料理名の読み方（カタカナ・ひらがな）→ 漢字の一部
-const AI_ALIAS_ = [[/かようび|かよう日|火よう日|火よう/g, '火曜'], [/すいようび|すいよう日|水よう日|水よう/g, '水曜'], [/もくようび|もくよう日|木よう日|木よう/g, '木曜'], [/マーボー|まーぼー|マーボ/g, '麻婆'], [/てんしん|テンシン/g, '天津'], [/ホイコーロー|ほいこーろー/g, '回鍋肉'], [/ギョーザ|ぎょーざ|ぎょうざ|ギョウザ/g, '餃子'], [/チャーハン|ちゃーはん/g, '炒飯'], [/すぶた|スブタ/g, '酢豚'], [/えびちり/g, 'エビチリ'], [/チンジャオ|ちんじゃお/g, '青椒'], [/たんたん|タンタン/g, '担々'], [/はるまき|ハルマキ/g, '春巻'], [/ちゅうか|チュウカ/g, '中華'], [/らーめん/g, 'ラーメン'], [/からあげ|カラアゲ/g, '唐揚'], [/ゆーりんちー|ユーリンチー/g, '油淋鶏'], [/しゅうまい|シュウマイ|シューマイ/g, '焼売']];
+const AI_ALIAS_ = [[/かようび|かよう日|火よう日|火よう/g, '火曜'], [/すいようび|すいよう日|水よう日|水よう/g, '水曜'], [/もくようび|もくよう日|木よう日|木よう/g, '木曜'], [/マーボー|まーぼー|マーボ/g, '麻婆'], [/てんしん|テンシン|天心/g, '天津'], [/ホイコーロー|ほいこーろー/g, '回鍋肉'], [/ギョーザ|ぎょーざ|ぎょうざ|ギョウザ/g, '餃子'], [/チャーハン|ちゃーはん/g, '炒飯'], [/すぶた|スブタ/g, '酢豚'], [/えびちり/g, 'エビチリ'], [/チンジャオ|ちんじゃお/g, '青椒'], [/たんたん|タンタン/g, '担々'], [/はるまき|ハルマキ/g, '春巻'], [/ちゅうか|チュウカ/g, '中華'], [/らーめん/g, 'ラーメン'], [/からあげ|カラアゲ/g, '唐揚'], [/ゆーりんちー|ユーリンチー/g, '油淋鶏'], [/しゅうまい|シュウマイ|シューマイ/g, '焼売']];
 function aiNorm_(t) { let x = String(t || '').normalize('NFKC').replace(/\s+/g, ''); AI_ALIAS_.forEach(([re, to]) => { x = x.replace(re, to); }); return x; }
 function aiCostOf_(tokens) { return tokens ? Math.max(2, Math.ceil(tokens / 100)) : 1; }
 function aiConvo_(weekId, uid) {
@@ -1080,11 +1080,13 @@ function aiAnswer_(q, ctx, D) {
     const ds = isDay(day) ? [day] : DAYS;
     return out('cmp', ds.map(d => d + '曜は' + (P(d, a) >= P(d, b) ? a.name : b.name) + '（' + f1(P(d, a)) + '% 対 ' + f1(P(d, b)) + '%）').join('、') + ' の方が来やすいです');
   }
+  if (/(3|三)日とも|毎日同じ|全部同じ|同じ料理|同じもの/.test(q)) { const tops = DAYS.map(d => { const m = D.cur.slice().sort((a, b) => (D.probs[d][b.waku] || 0) - (D.probs[d][a.waku] || 0))[0]; return m ? m.name : ''; }); return out('same', DAYS.map((d, i) => d + ' ' + tops[i]).join('・') + ' がそれぞれの日でいちばん来やすい品です' + (tops[0] && tops.every(x => x === tops[0]) ? '（3日とも同じ）' : '')); }
+  if (/(AI|この予想|予想).{0,4}(当たる|当たった|成績|実績|的中)/.test(q) && !/[火水木]曜|明日|今日/.test(q)) return out('track', 'AIの予想がどれくらい当たったかの記録は、まだ集計していません。データがたまったら見られるようにします');
   if (/自信/.test(q) && D.buys.length) return out('conf', 'AIの自信は ' + D.buys.map((b, i) => '買い目' + (i + 1) + ' ' + '●'.repeat(b.dots || 0) + '○'.repeat(5 - (b.dots || 0))).join('、') + ' です（人気順だけで読んだときより当たりやすいほど●が多い）');
   if (/(オッズ|倍率).{0,4}(高|大き)/.test(q)) { const t = D.cur.slice().sort((a, b) => b.odds - a.odds).slice(0, 3); return out('odds', '倍率が高いのは ' + t.map(m => m.name + ' ' + m.odds.toFixed(1) + '倍').join('・') + ' です'); }
   if (/締切|しめきり|いつまで/.test(q)) return out('dl', '締切は ' + D.deadline + ' です');
   if (/みんな|ほかの人|他の人/.test(q)) return out('crowd', 'みんなの予想は、締切のあとに人数だけ見られます');
-  if (/本命|鉄板|いちばん来|一番来|当たりやすい組|おすすめの組|来そうな組/.test(q) && D.buys.length) { const b = D.buys[0]; return out('top', 'いちばん当たりやすい組は ' + b.names.join(' → ') + '（3連単 ' + f1(b.mul) + '倍）です'); }
+  if (/本命|鉄板|いちばん来|一番来|当たりやすい組|外れにくい|はずれにくい|堅い買い方|かたい買い方|おすすめの組|来そうな組/.test(q) && D.buys.length) { const b = D.buys[0]; return out('top', 'いちばん当たりやすい組は ' + b.names.join(' → ') + '（3連単 ' + f1(b.mul) + '倍）です'); }
   if (byBuy && num) { const b = D.buys[Number(num) - 1]; return out('buy', b ? '買い目の' + num + '番（' + b.names.join(' → ') + '）が当たる確率は ' + f1(b.p) + '% です' : '買い目の' + num + '番はありません'); }
   if (/(私|自分|僕|俺|わたし)の(買い目|予想)|当たれば最大/.test(q)) return out('mine', D.mine || 'まだ買っていません');
   if (/よく出|これまで|過去|何回|傾向/.test(q)) {
