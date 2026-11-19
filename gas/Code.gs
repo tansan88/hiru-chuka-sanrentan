@@ -635,9 +635,9 @@ const API = {
 // 中身は統計（外のAIは呼ばない）。使うのは公開した出馬表・いまの倍率・確定した週の結果だけ（ホストだけが知る情報は混ぜない）
 // モデル＝何を見て読むか、エフォート＝どこまで深く読むか
 const AI_MODELS = [
-  { id: 'haiku', name: 'Hakkaku', desc: 'すばやく軽く', key: 'AI予想の値段（Hakkaku）', price: 200 },
-  { id: 'sonnet', name: 'Shumainet', desc: 'バランス型', key: 'AI予想の値段（Shumainet）', price: 500 },
-  { id: 'opus', name: 'Octopus', desc: 'いちばん深く、8本の足で手広く', key: 'AI予想の値段（Octopus）', price: 1000 },
+  { id: 'haiku', name: 'Hakkaku', desc: '人気の順番から読む', key: 'AI予想の値段（Hakkaku）', price: 200 },
+  { id: 'sonnet', name: 'Shumainet', desc: '料理・曜日ごとの出やすさも読む', key: 'AI予想の値段（Shumainet）', price: 500 },
+  { id: 'opus', name: 'Octopus', desc: 'ホストの好みと倍率のお得さまで読む', key: 'AI予想の値段（Octopus）', price: 1000 },
 ];
 const AI_EFFORTS = [
   { id: 'low', name: '低', desc: '直近4週・買い目1点', key: '', mul: 1, weeks: 4, buys: 1, lines: 2 },
