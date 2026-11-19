@@ -2010,7 +2010,7 @@ function geminiCheck_() {
     const r = UrlFetchApp.fetch(GEMINI_BASE_ + 'models?pageSize=200', { headers: { 'x-goog-api-key': key }, muteHttpExceptions: true });
     out.listStatus = r.getResponseCode();
     const ms = (JSON.parse(r.getContentText()).models || []).filter(m => (m.supportedGenerationMethods || []).indexOf('generateContent') >= 0).map(m => m.name.replace('models/', ''));
-    out.models = ms.filter(n => /flash/.test(n));
+    out.models = ms.filter(n => /flash-lite/.test(n)).length;
     // 混んでいると 503 が返るので、候補を順に試す
     out.tries = [];
     ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'].filter(n => ms.indexOf(n) >= 0).forEach(n => {
