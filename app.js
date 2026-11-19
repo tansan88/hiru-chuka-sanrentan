@@ -31,7 +31,7 @@
     const head = document.head;
     const link = (rel, href, id) => { const l = document.createElement('link'); l.rel = rel; l.href = href; if (id) l.id = id; head.appendChild(l); };
     link('manifest', 'assets/pwa/manifest' + (POST_MODE ? '-post' : '') + (PWA_TEST ? '-test' : '') + '.webmanifest');
-    link('apple-touch-icon', iconSrc('default', 180), 'touchicon');
+    link('apple-touch-icon', iconSrc(POST_MODE ? 'post' : 'default', 180), 'touchicon');
   })();
   const HIRU_STAMP = ':hirucyuuka:';
   const OTHER_NAME = 'その他';
@@ -49,7 +49,8 @@
   const PUSH_OK = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   const SWP = ('serviceWorker' in navigator && !POST_MODE) ? navigator.serviceWorker.register('sw.js').catch(() => null) : Promise.resolve(null);
   function iconId() { const v = store.get('pwa_icon'); return ICONS.some(x => x[0] === v) ? v : 'default'; }
-  function applyIcon() { const l = document.getElementById('touchicon'); if (l) l.href = iconSrc(iconId(), 180); }
+  // 「投稿をつくる」（?post）は、3連単と見分けられるよう、いつも投稿専用のアイコン（丼にカメラ）
+  function applyIcon() { const l = document.getElementById('touchicon'); if (l) l.href = iconSrc(POST_MODE ? 'post' : iconId(), 180); }
   applyIcon();
 
 

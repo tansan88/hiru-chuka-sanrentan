@@ -5,16 +5,16 @@
   "start_url": "../../?post",
   "scope": "../../",
   "display": "standalone",
-  "background_color": "#0F5C2E",
+  "background_color": "#F4F1E6",
   "theme_color": "#0F5C2E",
   "icons": [
     {
-      "src": "icons/default-test-192.png",
+      "src": "icons/post-test-192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "icons/default-test-512.png",
+      "src": "icons/post-test-512.png",
       "sizes": "512x512",
       "type": "image/png"
     }
