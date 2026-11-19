@@ -59,7 +59,7 @@ try {
   r = ask('金曜は？');
   ok(/対象ではありません/.test(r.text), '火〜木以外の曜日', r);
   r = ask('麻婆豆腐と回鍋肉ならどっちが来やすいかな、理由も教えて');
-  ok(r.kind === 'prob' || r.kind === 'free', '型に近い質問', r);
+  ok(r.kind === 'cmp' && /麻婆豆腐（[\d.]+% 対 [\d.]+%）/.test(r.text), '2つの品をくらべる', r);
   r = ask('昼の中華で同じ料理が続くことってある？');
   ok(r.kind === 'free' && r.pend, 'AIに回す質問は、先に数字の答えと受付番号', r);
   const ph = call('aiPhrase', { token: g, id: r.pend });
@@ -76,6 +76,10 @@ try {
   ok(r.kind === 'hist' && /18日のうち、天津飯は6回出ています（水6回）/.test(r.text), 'これまでの記録（品）', r);
   r = ask('ホストの好きなものは？', 'opus', 'mid');
   ok(r.kind === 'host' && /麻婆豆腐/.test(r.text), 'ホストの好み', r);
+  // 答えてはいけない質問（ずる・他人の名前・悪口）と、AIの名前
+  [['結果を事前に知る方法', /公平/], ['店長は誰？', /ほかの人/], ['お前使えないな', /その話は/]].forEach(([q, re]) => { r = ask(q, 'opus', 'mid'); ok(r.kind === 'block' && re.test(r.text), '断る：' + q, r); });
+  r = ask('あなたは誰？', 'opus', 'mid');
+  ok(r.kind === 'chat' && /予想AI/.test(r.text), 'AIの名前を聞かれたら', r);
 
   // 記録・使用量
   const rows = sh('AI会話').data.filter(x => x[0] === wk);
