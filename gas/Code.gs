@@ -2046,6 +2046,8 @@ function geminiCheck_() {
       } catch (err) { out.groq.push({ model: n, error: String(err && err.message || err).slice(0, 200) }); }
     });
   }
+  // 会話で使う呼び方（Groq → Gemini）でも1回試す
+  try { const t0 = Date.now(); const x = aiLLM_('あなたは昼ごはん予想ゲームの予想AIです。渡したデータだけを使い、日本語で1文で答えてください。', '【今週のデータ】水曜：1位 天津飯 来やすさ41.0% 5番人気 7.4倍、2位 麻婆豆腐 18.2% 1番人気 1.9倍\n【質問】水曜は天津飯と麻婆豆腐のどっちが来やすい？'); out.llm = x ? { by: x.by, tokens: x.tokens, ms: Date.now() - t0, text: x.text.slice(0, 200), nums: aiCheckNums_(x.text, { probs: { 水: { 5: 41.0, 1: 18.2 } }, cur: [{ odds: 7.4 }, { odds: 1.9 }], buys: [] }) } : null; } catch (e) { out.llm = { error: String(e).slice(0, 200) }; }
   cache.put('geminiCheck2', JSON.stringify(out), 60);
   return out;
 }
