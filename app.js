@@ -371,7 +371,7 @@
       `<div class="tbl">${tableHead(DAYS)}${rows}</div>
       <div class="list"><div class="list-h"><span>あなたの買い目</span></div>${list}</div>
       <div class="dock" id="dock">
-        <div class="l1"><span class="fm" id="dfm"></span></div>
+        <div class="l1"><span class="fm" id="dfm"></span><span class="mo" id="dmo"></span></div>
         <div class="bet"><label for="bet">1点あたり</label><div class="box"><input id="bet" inputmode="numeric" pattern="[0-9]*" size="6" value="${esc(S.bet)}" placeholder="100pt単位" aria-describedby="derr"><span>pt</span></div></div>
         <div class="err" id="derr" style="color:#FFC9C9"></div>
         <div class="l3"><span class="ret" id="dret"></span><button class="btn gold" id="buy">買う</button></div>
@@ -389,7 +389,12 @@
     if (S.bet !== '' && (!(bet >= 100) || bet % 100)) er = '100pt単位で入れてください';
     else if (n && n * bet > max) er = '使えるのは ' + fmt(max) + 'pt までです';
     q('dfm').innerHTML = `火${S.sel.火.length}<span class="x">×</span>水${S.sel.水.length}<span class="x">×</span>木${S.sel.木.length}<span class="x">＝</span><b>${n}点</b>`;
-    q('dret').innerHTML = done && bet && !er ? `${n}点 × ${fmt(bet)}pt ＝<br><b>${fmt(n * bet)}</b> pt` : done ? '' : '火・水・木を1つ以上選んでください';
+    // 選んだ組み合わせの3連単の倍率（1点なら1つ、複数なら低い〜高い）と、当たれば最大
+    let lo = Infinity, hi = 0;
+    if (done) S.sel.火.forEach(a => S.sel.水.forEach(b => S.sel.木.forEach(c => { const m = oddsOf(v, a) * oddsOf(v, b) * oddsOf(v, c); lo = Math.min(lo, m); hi = Math.max(hi, m); })));
+    q('dmo').innerHTML = done ? `<small>3連単</small><b>${oddsTxt(lo)}${hi > lo ? '〜' + oddsTxt(hi) : ''}</b><small>倍</small>` : '';
+    const mx = done && bet && !er ? maxPay(v, [{ picks: S.sel, bet, points: n }], {}) : 0;
+    q('dret').innerHTML = done && bet && !er ? `${n}点 × ${fmt(bet)}pt ＝ <b>${fmt(n * bet)}</b> pt<br><span class="mx">当たれば最大 <b>${fmt(mx)}</b> pt</span>` : done ? '' : '火・水・木を1つ以上選んでください';
     q('derr').textContent = er;
     q('buy').textContent = done ? n + '点を買う' : '買う';
     q('buy').disabled = !(done && bet && !er);
