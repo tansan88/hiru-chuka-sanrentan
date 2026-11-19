@@ -1691,7 +1691,7 @@ const GEMINI_BASE_ = 'https://generativelanguage.googleapis.com/v1beta/';
 function geminiKey_() { return PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || ''; }
 function geminiCheck_() {
   const cache = CacheService.getScriptCache();
-  const hit = cache.get('geminiCheck');
+  const hit = cache.get('geminiCheck2');
   if (hit) return Object.assign(JSON.parse(hit), { cached: true });
   const key = geminiKey_();
   const out = { ok: true, keySet: !!key };
@@ -1701,19 +1701,20 @@ function geminiCheck_() {
     out.listStatus = r.getResponseCode();
     const ms = (JSON.parse(r.getContentText()).models || []).filter(m => (m.supportedGenerationMethods || []).indexOf('generateContent') >= 0).map(m => m.name.replace('models/', ''));
     out.models = ms.filter(n => /flash/.test(n));
-    const pick = ms.filter(n => /flash-lite/.test(n) && !/preview|exp|tts|image|live|audio/.test(n)).sort().pop();
-    out.try = pick || '';
-    if (pick) {
-      const g = UrlFetchApp.fetch(GEMINI_BASE_ + 'models/' + pick + ':generateContent', {
+    // 混んでいると 503 が返るので、候補を順に試す
+    out.tries = [];
+    ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-2.5-flash-lite'].filter(n => ms.indexOf(n) >= 0).forEach(n => {
+      const g = UrlFetchApp.fetch(GEMINI_BASE_ + 'models/' + n + ':generateContent', {
         method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': key }, muteHttpExceptions: true,
         payload: JSON.stringify({ contents: [{ parts: [{ text: '「OK」とだけ返してください' }] }] }),
       });
-      out.genStatus = g.getResponseCode();
       const b = JSON.parse(g.getContentText());
-      if (b.error) out.genError = String(b.error.message || '').slice(0, 300);
-      else { out.text = ((((b.candidates || [])[0] || {}).content || {}).parts || []).map(x => x.text).join('').slice(0, 50); out.usage = b.usageMetadata || null; }
-    }
+      const t = { model: n, status: g.getResponseCode() };
+      if (b.error) t.error = String(b.error.message || '').slice(0, 200);
+      else { t.text = ((((b.candidates || [])[0] || {}).content || {}).parts || []).map(x => x.text).join('').slice(0, 30); t.usage = b.usageMetadata || null; }
+      out.tries.push(t);
+    });
   } catch (err) { out.ok = false; out.error = String(err && err.message || err).slice(0, 300); }
-  cache.put('geminiCheck', JSON.stringify(out), 600);
+  cache.put('geminiCheck2', JSON.stringify(out), 600);
   return out;
 }
