@@ -1037,37 +1037,43 @@
       <div class="ai-meta">${aiMark(false)}<b>${esc(aiName(it.model))}</b><span>エフォート ${esc(aiEff(it.effort))}</span>${it.pt ? `<span class="pt">${fmt(it.pt)}pt</span>` : ''}</div>
       <details class="ai-think"${opt.open ? ' open' : ''}><summary>考えた過程</summary><ol>${lines}</ol></details>
       <div class="ai-ans"${opt.reveal ? ` style="animation-delay:${res.think.length * 0.35 + 0.2}s"` : ''}>${aiBuys(it)}</div>
-      ${aiThread(it)}
     </article>`;
   }
-  // 会話：自分の質問は右、AIの答えは左。最後の答えに選べる質問があればボタンで出す
-  function aiThread(it) {
-    const c = it.convo || []; if (!c.length) return '';
-    return `<div class="ai-chat">${c.map((x, i) => `<div class="ai-q">${esc(x.q)}</div><div class="ai-a${x.typing ? ' typing' : ''}">${x.typing ? '<span class="dots"><i></i><i></i><i></i></span>' : esc(x.a)}${i === c.length - 1 && x.choices && x.choices.length && S.ai.info.askOpen ? `<div class="ai-chips">${x.choices.map(t => `<button data-askq="${esc(t)}">${esc(t)}</button>`).join('')}</div>` : ''}</div>`).join('')}</div>`;
+  // 会話：ふつうのAIチャットの形。予想の下に1本で続く（どのモデルが答えたかは出さない）
+  // 自分の質問は右の吹き出し、AIの答えは左に文だけ。考え中はAIのマークが動く。最新の答えの下にマーク
+  function aiThread() {
+    const c = S.ai.info.convo || []; if (!c.length) return '';
+    const lastA = c[c.length - 1].think ? -1 : c.length - 1;
+    return `<section class="ai-chat" aria-label="AIとの会話">${c.map((x, i) => `<div class="ai-q">${esc(x.q)}</div>${x.think ? `<div class="ai-a think" aria-label="考え中">${aiMark(true, 24)}</div>` : `<div class="ai-a${x.fresh ? ' in' : ''}">${esc(x.a)}${i === c.length - 1 && x.choices && x.choices.length && S.ai.info.askOpen ? `<div class="ai-chips">${x.choices.map(t => `<button data-askq="${esc(t)}">${esc(t)}</button>`).join('')}</div>` : ''}${i === lastA ? `<div class="ai-sig">${aiMark(false, 16)}</div>` : ''}</div>`}`).join('')}</section>`;
   }
-  // 質問を送る：先に数字だけの答えを出し、AIの言い回しが届いたら差し替える（15秒待って来なければそのまま）
+  // 考える時間：質問と答えの長さで変える（決まった文でも少し考えてから出す）
+  const aiThinkMs = (q, a) => Math.min(3200, Math.max(900, 600 + q.length * 22 + String(a || '').length * 14 + Math.random() * 500));
+  const aiSleep = ms => new Promise(res => setTimeout(res, ms));
+  // 質問を送る：考え中のマークを出す → 決まった答えなら長さに応じて待って出す
+  // AIの言い回しを使うときは、届くまで考え中のまま（8秒で決まった答えを先に出し、15秒までに届けば差し替える）
   async function aiAskSend(q) {
     const A = S.ai, I = A.info, v = S.data.current;
     const it = I.items.find(x => x.model === A.model && x.effort === A.effort);
     q = String(q || '').trim(); if (!it || !q || A.asking) return;
     A.asking = true;
     const key = aiKey(it); A.ctx = A.ctx || {};
-    it.convo = it.convo || [];
-    const row = { q, a: '', typing: true }; it.convo.push(row);
+    I.convo = I.convo || [];
+    const row = { model: it.model, effort: it.effort, q, a: '', think: true }; I.convo.push(row);
+    I.convo.forEach(x => x.fresh = false);
     A.draft = ''; renderAI(true); aiScrollEnd();
+    const t0 = Date.now();
+    const show = (t, ch) => { row.a = t; row.choices = ch; row.think = false; row.fresh = true; renderAI(true); aiScrollEnd(); };
     try {
       const r = await api('aiAsk', { weekId: I.weekId || (v && v.weekId), model: it.model, effort: it.effort, q, ctx: A.ctx[key] || null }, { loading: false });
-      row.a = r.text; row.typing = false; row.choices = r.choices; if (r.ctx) A.ctx[key] = r.ctx; if (r.usage) I.usage = r.usage;
+      if (r.ctx) A.ctx[key] = r.ctx; if (r.usage) I.usage = r.usage;
       if (r.kind === 'closed') I.askOpen = false;
-      renderAI(true); aiScrollEnd();
-      if (r.pend) {
-        row.typing = true; renderAI(true);
-        const p = await Promise.race([api('aiPhrase', { id: r.pend }, { loading: false, quiet: true }).catch(() => null), new Promise(res => setTimeout(() => res(null), 15000))]);
-        row.typing = false;
-        if (p && p.text) { row.a = p.text; row.choices = p.choices; if (p.usage) I.usage = p.usage; }
-        renderAI(true); aiScrollEnd();
-      }
-    } catch (e) { it.convo.pop(); A.draft = q; renderAI(true); }
+      if (!r.pend) { await aiSleep(aiThinkMs(q, r.text) - (Date.now() - t0)); show(r.text, r.choices); return; }
+      const ph = api('aiPhrase', { id: r.pend }, { loading: false, quiet: true }).catch(() => null);
+      const p = await Promise.race([ph, aiSleep(8000).then(() => 'late')]);
+      if (p && p !== 'late' && p.text) { await aiSleep(aiThinkMs(q, p.text) - (Date.now() - t0)); if (p.usage) I.usage = p.usage; show(p.text, p.choices); return; }
+      show(r.text, r.choices);
+      if (p === 'late') { const p2 = await Promise.race([ph, aiSleep(7000).then(() => null)]); if (p2 && p2.text) { if (p2.usage) I.usage = p2.usage; show(p2.text, p2.choices); } }
+    } catch (e) { I.convo.pop(); A.draft = q; renderAI(true); }
     finally { A.asking = false; }
   }
   function aiScrollEnd() { const el = document.querySelector('.ai-chat:last-of-type, .ai-list'); if (el) window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); }
@@ -1108,7 +1114,7 @@
     $app.innerHTML = `<header class="bar"><div style="display:flex;align-items:center;gap:10px"><button class="ibtn" id="back" aria-label="戻る" style="font-size:22px;padding-bottom:3px">‹</button><b class="sub-title">AI予想</b></div><span class="pts">持ち点<br><b>${fmt(S.data.me.balance)}</b> pt</span></header>
       ${cur && !cur.closed && !cur.isMyHostWeek ? buyLed(cur) : ''}
       ${freeTxt && I.canBuy ? `<div class="ai-free"><b>期間限定で無料</b><span>${freeTxt}</span></div>` : ''}
-      <div class="ai-list">${items}${A.pend ? aiPending(A.pend) : ''}</div>
+      <div class="ai-list">${items}${A.pend ? aiPending(A.pend) : ''}${aiThread()}</div>
       <div class="ai-dock">${bought && I.askOpen ? aiAskBox(bought) : I.canBuy ? `<div class="ai-comp">
         <div class="ai-prompt">今週の3連単を予想して</div>
         <div class="ai-row"><button class="ai-pill" id="aiPick" aria-haspopup="dialog">${esc(aiName(A.model))}<span>エフォート ${esc(aiEff(A.effort))}</span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button>
@@ -1131,7 +1137,7 @@
   // 予想を出したモデル×エフォートなら、入力欄で自由に質問できる。上に今週の使用量
   function aiAskBox(it) {
     const A = S.ai, I = A.info, u = I.usage || { pct: 0 }, full = u.pct >= 100;
-    const ex = (it.convo || []).length ? '' : `<div class="ai-chips">${['水曜は何が来そう？', '本命の組は？', '天津飯が来る確率は？'].map(t => `<button data-askq="${esc(t)}">${esc(t)}</button>`).join('')}</div>`;
+    const ex = (I.convo || []).length ? '' : `<div class="ai-chips">${['水曜は何が来そう？', '本命の組は？', '天津飯が来る確率は？'].map(t => `<button data-askq="${esc(t)}">${esc(t)}</button>`).join('')}</div>`;
     return `<div class="ai-comp">${ex}
       <div class="ai-use" title="今週の使用量"><span>今週の使用量</span><i><b style="width:${u.pct}%"></b></i><span>${u.pct}%</span></div>
       <div class="ai-askrow"><textarea id="aiQ" rows="1" maxlength="120" placeholder="${full ? '今週の質問はここまでです' : '質問する（例：水曜は何が来そう？）'}" ${full ? 'disabled' : ''} aria-label="AIに質問する">${esc(A.draft || '')}</textarea>

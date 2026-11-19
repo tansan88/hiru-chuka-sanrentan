@@ -165,6 +165,7 @@ const API = {
     out.items = aiItems_(db, w.週ID, u.id);
     const conv = aiConvo_(w.週ID, u.id);
     out.items.forEach(it => it.convo = conv.filter(c => c.model === it.model && c.effort === it.effort).map(c => ({ q: c.q, a: c.a, kind: c.kind, ai: c.ai })));
+    out.convo = conv.map(c => ({ model: c.model, effort: c.effort, q: c.q, a: c.a, kind: c.kind })); // 会話は1本（送った順）
     out.usage = aiUsage_(conv);
     out.askOpen = w.状態 === '受付中' && new Date() < new Date(w.締切);
     const why = aiBlocked_(w, u);

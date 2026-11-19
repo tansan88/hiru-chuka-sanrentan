@@ -775,9 +775,12 @@ input[type=date]:disabled{color:var(--sub);background:var(--bg)}
 .dock .ret .mx b{color:var(--gold);font-size:14px}
 
 /* AI予想の会話 */
-.ai-chat{display:flex;flex-direction:column;gap:6px;margin-top:12px;border-top:1px dashed var(--line2);padding-top:12px}
-.ai-q{align-self:flex-end;max-width:85%;background:var(--turf);color:#FFF;border-radius:14px 14px 4px 14px;padding:7px 12px;font-size:14px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
-.ai-a{align-self:flex-start;max-width:92%;background:var(--bg);border-radius:14px 14px 14px 4px;padding:8px 12px;font-size:14px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
+.ai-chat{display:flex;flex-direction:column;gap:14px;margin:18px 2px 8px}
+.ai-q{align-self:flex-end;max-width:82%;background:#EFEDE8;color:var(--ink);border-radius:16px;padding:8px 13px;font-size:14.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
+.ai-a{align-self:stretch;padding:0 2px;font-size:14.5px;line-height:1.75;white-space:pre-wrap;word-break:break-word;color:var(--ink)}
+.ai-a.think{min-height:28px;display:flex;align-items:center}
+.ai-a.in{animation:aiIn .35s ease-out}
+.ai-sig{margin-top:8px;display:flex}
 .ai-a .dots{display:inline-flex;gap:4px}.ai-a .dots i{width:6px;height:6px;border-radius:50%;background:var(--mute);animation:aiDot 1s infinite}
 .ai-a .dots i:nth-child(2){animation-delay:.15s}.ai-a .dots i:nth-child(3){animation-delay:.3s}
 @keyframes aiDot{0%,80%,100%{opacity:.25}40%{opacity:1}}
@@ -792,3 +795,5 @@ input[type=date]:disabled{color:var(--sub);background:var(--bg)}
 .ai-askrow .ai-send{flex:none;width:36px;height:36px;padding:0;justify-content:center}
 .am .bk{margin-right:auto;font-size:12px;color:var(--sub)}.am .bk b{color:var(--turf);font-size:14px}
 .bxMx{text-align:right;font-size:12px;color:var(--sub);margin:2px 0 6px}.bxMx b{color:var(--turf);font-size:16px}
+
+@media (prefers-reduced-motion:reduce){.ai-a.in{animation:none}}
