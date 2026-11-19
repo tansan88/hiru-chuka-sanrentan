@@ -804,9 +804,10 @@
   // 考え中（.on）だけ動く：手裏剣で2周 → 4枚が飛び出し、輪の上を回りながら1枚ずつ自転 → 集まって手裏剣に（6秒でくり返す）
   const AI_COL = ['#00A86B', '#FFC400', '#FF4D3F', '#3D7BFF'];
   const aiPlace = (r, ang, rot, sc) => { const a = ang * Math.PI / 180; return `translate(${(50 + r * Math.sin(a)).toFixed(2)} ${(50 - r * Math.cos(a)).toFixed(2)}) rotate(${rot.toFixed(1)}) scale(${sc.toFixed(3)})`; };
-  function aiMark(on) {
+  function aiMark(on, size) {
     if (on) aiSpin();
-    return `<svg class="ai-mark${on ? ' on' : ''}" width="26" height="26" viewBox="0 0 100 100" aria-hidden="true">${AI_COL.map((c, i) => `<path d="M0 -24L11 0L0 24L-11 0Z" transform="${aiPlace(24, i * 90, i * 90, 1)}" fill="${c}"/>`).join('')}</svg>`;
+    const z = size || 26;
+    return `<svg class="ai-mark${on ? ' on' : ''}" width="${z}" height="${z}" viewBox="0 0 100 100" aria-hidden="true">${AI_COL.map((c, i) => `<path d="M0 -24L11 0L0 24L-11 0Z" transform="${aiPlace(24, i * 90, i * 90, 1)}" fill="${c}"/>`).join('')}</svg>`;
   }
   const aiEase = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
   const aiSeg = (t, a, b) => Math.min(1, Math.max(0, (t - a) / (b - a)));
@@ -830,8 +831,10 @@
     };
     aiRaf = requestAnimationFrame(step);
   }
+  const AI_NAMES = 'Hakkaku・Shumainet・Octopus';
   function aiEntry(v) {
-    return `<button class="ai-entry" data-act="ai">${aiMark(false)}<span class="t"><b>AI予想</b><small>${v.closed ? '買った予想を見る' : 'モデルとエフォートを選んで、予想してもらう'}</small></span><span class="go" aria-hidden="true">›</span></button>`;
+    // 4色の枠のカード（マークと同じ4色）。下にモデル名だけ並べる
+    return `<div class="ai-entry-w"><button class="ai-entry" data-act="ai">${aiMark(false, 38)}<span class="t"><b>AI予想</b><small>${AI_NAMES}</small></span><span class="go" aria-hidden="true">›</span></button></div>`;
   }
   async function openAI() {
     const v = S.data.current;
