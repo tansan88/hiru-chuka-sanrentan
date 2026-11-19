@@ -1019,10 +1019,13 @@
       const k = b.picks, got = bought(k);
       const days = k.map((w, j) => { const m = menu(w); return `<span class="d">${DAYS[j]}</span><span class="w">${waku(w)}</span><span class="n">${esc(b.names[j])}</span><span class="p">${m.pop ? m.pop + '人気' : ''}</span><span class="o">${m.odds ? oddsTxt(m.odds) : ''}</span>`; }).join('');
       const ck = can ? `<button class="ck ${st.sel[i] ? 'on' : ''}" data-ck="${i}" aria-pressed="${!!st.sel[i]}" aria-label="${i + 1}番の買い目を選ぶ"></button>` : '<span></span>';
-      const am = can && st.sel[i] ? `<div class="am"><span>この目に張る</span><span class="ai-amt"><input data-amt="${i}" inputmode="numeric" value="${esc(st.amt[i] || st.bet)}" aria-label="${i + 1}番に張るpt"><small>pt</small></span></div>` : '';
+      // 当たったら：日替わり3日分（1点÷3×各日の倍率）＋3連単（1点×3品の倍率のかけ算）
+      const back = a => k.reduce((x, w) => x + Math.floor(a / 3 * (menu(w).odds || 0)), 0) + Math.floor(a * mul(k));
+      const am = can && st.sel[i] ? `<div class="am"><span class="bk">当たれば <b>${fmt(back(amt(i)))}</b>pt</span><span>この目に張る</span><span class="ai-amt"><input data-amt="${i}" inputmode="numeric" value="${esc(st.amt[i] || st.bet)}" aria-label="${i + 1}番に張るpt"><small>pt</small></span></div>` : '';
       return `<div class="lyA${glow.indexOf(i) >= 0 ? ' just' : ''}"><div class="hd">${ck}<span class="m"><i>3連単</i><b>${oddsTxt(mul(k) || b.mul)}</b>倍</span>${dots(b.dots)}</div><div class="gd">${days}</div>${got.length ? `<span class="ai-got">買った ${got.map(x => fmt(x) + 'pt').join('・')}</span>` : ''}${am}</div>`;
     }).join('');
     const box = can ? `<div class="bxCtl"><button class="ai-all" data-all="1">${st.sel.every(Boolean) ? '選ぶのをやめる' : '全部選ぶ'}</button><span class="bt"><small>1点あたりまとめて</small><span class="bx"><input data-bet="1" inputmode="numeric" value="${esc(st.bet)}">pt</span></span></div>
+      ${sel.length ? `<div class="bxMx">当たれば最大 <b>${fmt(v ? maxPay(v, sel.map(i => { const k = res.buys[i].picks; return { picks: { 火: [k[0]], 水: [k[1]], 木: [k[2]] }, bet: amt(i), points: 1 }; }), {}) : 0)}</b>pt</div>` : ''}
       <div class="bxZ"><div><small>選んだ目</small><b>${sel.length}点</b></div><div><small>合計</small><b>${fmt(tot)}<span>pt</span></b></div><button class="btn gold" data-buy="1" ${ok ? '' : 'disabled'}>${sel.length ? sel.length + '点を買う' : '目を選ぶ'}</button></div>` : '';
     return `<div class="aihX"><span class="h">買い目（3連単）</span></div><div class="ai-bys" data-key="${key}">${rows}${box}</div>`;
   }
@@ -1034,8 +1037,40 @@
       <div class="ai-meta">${aiMark(false)}<b>${esc(aiName(it.model))}</b><span>エフォート ${esc(aiEff(it.effort))}</span>${it.pt ? `<span class="pt">${fmt(it.pt)}pt</span>` : ''}</div>
       <details class="ai-think"${opt.open ? ' open' : ''}><summary>考えた過程</summary><ol>${lines}</ol></details>
       <div class="ai-ans"${opt.reveal ? ` style="animation-delay:${res.think.length * 0.35 + 0.2}s"` : ''}>${aiBuys(it)}</div>
+      ${aiThread(it)}
     </article>`;
   }
+  // 会話：自分の質問は右、AIの答えは左。最後の答えに選べる質問があればボタンで出す
+  function aiThread(it) {
+    const c = it.convo || []; if (!c.length) return '';
+    return `<div class="ai-chat">${c.map((x, i) => `<div class="ai-q">${esc(x.q)}</div><div class="ai-a${x.typing ? ' typing' : ''}">${x.typing ? '<span class="dots"><i></i><i></i><i></i></span>' : esc(x.a)}${i === c.length - 1 && x.choices && x.choices.length && S.ai.info.askOpen ? `<div class="ai-chips">${x.choices.map(t => `<button data-askq="${esc(t)}">${esc(t)}</button>`).join('')}</div>` : ''}</div>`).join('')}</div>`;
+  }
+  // 質問を送る：先に数字だけの答えを出し、AIの言い回しが届いたら差し替える（15秒待って来なければそのまま）
+  async function aiAskSend(q) {
+    const A = S.ai, I = A.info, v = S.data.current;
+    const it = I.items.find(x => x.model === A.model && x.effort === A.effort);
+    q = String(q || '').trim(); if (!it || !q || A.asking) return;
+    A.asking = true;
+    const key = aiKey(it); A.ctx = A.ctx || {};
+    it.convo = it.convo || [];
+    const row = { q, a: '', typing: true }; it.convo.push(row);
+    A.draft = ''; renderAI(true); aiScrollEnd();
+    try {
+      const r = await api('aiAsk', { weekId: I.weekId || (v && v.weekId), model: it.model, effort: it.effort, q, ctx: A.ctx[key] || null }, { loading: false });
+      row.a = r.text; row.typing = false; row.choices = r.choices; if (r.ctx) A.ctx[key] = r.ctx; if (r.usage) I.usage = r.usage;
+      if (r.kind === 'closed') I.askOpen = false;
+      renderAI(true); aiScrollEnd();
+      if (r.pend) {
+        row.typing = true; renderAI(true);
+        const p = await Promise.race([api('aiPhrase', { id: r.pend }, { loading: false, quiet: true }).catch(() => null), new Promise(res => setTimeout(() => res(null), 15000))]);
+        row.typing = false;
+        if (p && p.text) { row.a = p.text; row.choices = p.choices; if (p.usage) I.usage = p.usage; }
+        renderAI(true); aiScrollEnd();
+      }
+    } catch (e) { it.convo.pop(); A.draft = q; renderAI(true); }
+    finally { A.asking = false; }
+  }
+  function aiScrollEnd() { const el = document.querySelector('.ai-chat:last-of-type, .ai-list'); if (el) window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); }
   // 買い目の操作（選ぶ・金額・全部選ぶ・買う）。入力中は描き直してもカーソルを保つ
   function bindAIBuys() {
     const A = S.ai;
@@ -1074,17 +1109,34 @@
       ${cur && !cur.closed && !cur.isMyHostWeek ? buyLed(cur) : ''}
       ${freeTxt && I.canBuy ? `<div class="ai-free"><b>期間限定で無料</b><span>${freeTxt}</span></div>` : ''}
       <div class="ai-list">${items}${A.pend ? aiPending(A.pend) : ''}</div>
-      <div class="ai-dock">${I.canBuy ? `<div class="ai-comp">
+      <div class="ai-dock">${bought && I.askOpen ? aiAskBox(bought) : I.canBuy ? `<div class="ai-comp">
         <div class="ai-prompt">今週の3連単を予想して</div>
         <div class="ai-row"><button class="ai-pill" id="aiPick" aria-haspopup="dialog">${esc(aiName(A.model))}<span>エフォート ${esc(aiEff(A.effort))}</span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button>
         <button class="ai-send" id="aiSend" ${canSend ? '' : 'disabled'} aria-label="${bought ? '買った予想を見る' : esc(sendLbl) + 'で予想してもらう'}"><span>${esc(sendLbl)}</span><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
         ${!bought && price > S.data.me.balance ? '<div class="ai-err">持ち点が足りません。モデルかエフォートを下げてください</div>' : ''}</div>` : `<div class="ai-closed">${esc(I.reason || 'いまはAI予想を買えません')}</div>`}</div>`;
+    const qi = document.getElementById('aiQ');
+    if (qi) {
+      qi.oninput = () => { A.draft = qi.value; const b = document.getElementById('aiAsk'); if (b) b.disabled = !qi.value.trim() || A.asking; };
+      qi.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing && !e.shiftKey) { e.preventDefault(); aiAskSend(qi.value); } };
+      document.getElementById('aiAsk').onclick = () => aiAskSend(qi.value);
+    }
+    $app.querySelectorAll('[data-askq]').forEach(b => b.onclick = () => aiAskSend(b.dataset.askq));
     document.getElementById('back').onclick = () => { S.screen = null; S.ai.fresh = null; render(); window.scrollTo(0, 0); };
     const pk = document.getElementById('aiPick'); if (pk) pk.onclick = openAIPicker;
     const sd = document.getElementById('aiSend'); if (sd) sd.onclick = () => bought ? aiScrollTo(bought) : aiSend();
     bindAIBuys();
     stickTop();
     if (A.fresh && !keepScroll) { const el = document.getElementById(`ai-${A.fresh.model}-${A.fresh.effort}`); if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' }); A.fresh = null; }
+  }
+  // 予想を出したモデル×エフォートなら、入力欄で自由に質問できる。上に今週の使用量
+  function aiAskBox(it) {
+    const A = S.ai, I = A.info, u = I.usage || { pct: 0 }, full = u.pct >= 100;
+    const ex = (it.convo || []).length ? '' : `<div class="ai-chips">${['水曜は何が来そう？', '本命の組は？', '天津飯が来る確率は？'].map(t => `<button data-askq="${esc(t)}">${esc(t)}</button>`).join('')}</div>`;
+    return `<div class="ai-comp">${ex}
+      <div class="ai-use" title="今週の使用量"><span>今週の使用量</span><i><b style="width:${u.pct}%"></b></i><span>${u.pct}%</span></div>
+      <div class="ai-askrow"><textarea id="aiQ" rows="1" maxlength="120" placeholder="${full ? '今週の質問はここまでです' : '質問する（例：水曜は何が来そう？）'}" ${full ? 'disabled' : ''} aria-label="AIに質問する">${esc(A.draft || '')}</textarea>
+      <button class="ai-send" id="aiAsk" ${A.draft && !full ? '' : 'disabled'} aria-label="送る"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+      <div class="ai-row"><button class="ai-pill" id="aiPick" aria-haspopup="dialog">${esc(aiName(A.model))}<span>エフォート ${esc(aiEff(A.effort))}</span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button></div></div>`;
   }
   function aiScrollTo(it) { const el = document.getElementById(`ai-${it.model}-${it.effort}`); if (el) { el.scrollIntoView({ block: 'start', behavior: 'smooth' }); el.querySelector('details').open = true; } }
   // モデルとエフォートを選ぶ（Claude のモデル選びのような形）

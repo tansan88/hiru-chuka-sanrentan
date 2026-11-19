@@ -51,6 +51,7 @@ const G = {
   SpreadsheetApp: { getActiveSpreadsheet: () => SS, getUi: null },
   Logger: { log: () => {} },
   LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
+  CacheService: (() => { const c = {}; const o = { get: k => (k in c ? c[k] : null), put: (k, v) => { c[k] = String(v); }, remove: k => { delete c[k]; } }; return { getScriptCache: () => o }; })(),
   Session: { getScriptTimeZone: () => 'Asia/Tokyo', getEffectiveUser: () => ({ getEmail: () => 'owner@example.com' }) },
   MailApp: { sent: [], sendEmail(to, subject, body) { if (G.MailApp.fail) throw new Error('メール送信の許可がありません'); G.MailApp.sent.push({ to, subject, body }); } },
   PropertiesService: (() => { const p = {}; const o = { getProperty: k => (k in p ? p[k] : null), setProperty: (k, v) => { p[k] = String(v); return o; }, setProperties: m => { Object.keys(m).forEach(k => p[k] = String(m[k])); return o; }, deleteProperty: k => { delete p[k]; return o; }, getKeys: () => Object.keys(p), _p: p }; return { getScriptProperties: () => o }; })(),

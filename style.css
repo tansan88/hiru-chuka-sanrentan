@@ -773,3 +773,22 @@ input[type=date]:disabled{color:var(--sub);background:var(--bg)}
 .dock .mo b{font-size:17px;color:#FFF}
 .dock .ret .mx{font-size:12px;color:#B9D3C1}
 .dock .ret .mx b{color:var(--gold);font-size:14px}
+
+/* AI予想の会話 */
+.ai-chat{display:flex;flex-direction:column;gap:6px;margin-top:12px;border-top:1px dashed var(--line2);padding-top:12px}
+.ai-q{align-self:flex-end;max-width:85%;background:var(--turf);color:#FFF;border-radius:14px 14px 4px 14px;padding:7px 12px;font-size:14px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.ai-a{align-self:flex-start;max-width:92%;background:var(--bg);border-radius:14px 14px 14px 4px;padding:8px 12px;font-size:14px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
+.ai-a .dots{display:inline-flex;gap:4px}.ai-a .dots i{width:6px;height:6px;border-radius:50%;background:var(--mute);animation:aiDot 1s infinite}
+.ai-a .dots i:nth-child(2){animation-delay:.15s}.ai-a .dots i:nth-child(3){animation-delay:.3s}
+@keyframes aiDot{0%,80%,100%{opacity:.25}40%{opacity:1}}
+.ai-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.ai-comp>.ai-chips{margin:0 0 8px}
+.ai-chips button{border:1px solid var(--line2);background:#FFF;border-radius:999px;padding:5px 11px;font-size:12.5px;font-weight:700;color:var(--turf)}
+.ai-use{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--sub);margin-bottom:6px}
+.ai-use i{flex:1;height:5px;background:var(--line);border-radius:3px;overflow:hidden}
+.ai-use i b{display:block;height:100%;background:var(--turf);border-radius:3px}
+.ai-askrow{display:flex;align-items:flex-end;gap:8px}
+.ai-askrow textarea{flex:1;resize:none;border:0;outline:0;font:inherit;font-size:15px;line-height:1.5;padding:6px 2px;min-height:34px;max-height:96px;background:transparent}
+.ai-askrow .ai-send{flex:none;width:36px;height:36px;padding:0;justify-content:center}
+.am .bk{margin-right:auto;font-size:12px;color:var(--sub)}.am .bk b{color:var(--turf);font-size:14px}
+.bxMx{text-align:right;font-size:12px;color:var(--sub);margin:2px 0 6px}.bxMx b{color:var(--turf);font-size:16px}
