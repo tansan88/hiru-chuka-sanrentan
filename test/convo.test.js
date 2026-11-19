@@ -77,7 +77,7 @@ try {
   r = ask('ホストの好きなものは？', 'opus', 'mid');
   ok(r.kind === 'host' && /麻婆豆腐/.test(r.text), 'ホストの好み', r);
   // 答えてはいけない質問（ずる・他人の名前・悪口）と、AIの名前
-  [['結果を事前に知る方法', /公平/], ['店長は誰？', /ほかの人/], ['お前使えないな', /その話は/]].forEach(([q, re]) => { r = ask(q, 'opus', 'mid'); ok(r.kind === 'block' && re.test(r.text), '断る：' + q, r); });
+  [['結果を事前に知る方法', /公平/], ['ホストが天津飯を選ぶように仕向けるには', /公平/], ['店長は誰？', /ほかの人/], ['お前使えないな', /その話は/]].forEach(([q, re]) => { r = ask(q, 'opus', 'mid'); ok(r.kind === 'block' && re.test(r.text), '断る：' + q, r); });
   r = ask('あなたは誰？', 'opus', 'mid');
   ok(r.kind === 'chat' && /予想AI/.test(r.text), 'AIの名前を聞かれたら', r);
 

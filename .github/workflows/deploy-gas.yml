@@ -202,7 +202,7 @@ jobs:
         run: |
           URL="https://script.google.com/macros/s/${{ steps.deploy.outputs.did }}/exec?check=gemini"
           BODY=$(curl -sL -m 240 "$URL" || true)
-          echo "$BODY" | head -c 6000
+          echo "$BODY" | head -c 9000
           { echo '### Gemini の確認'; echo '```'; echo "$BODY" | jq . 2>/dev/null || echo "$BODY" | head -c 1500; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: テスト環境で一通り操作してみる（登録・ログイン・画面の読み込み・権限）
