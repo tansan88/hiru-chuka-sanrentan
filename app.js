@@ -1040,43 +1040,98 @@
     </article>`;
   }
   // 会話：ふつうのAIチャットの形。予想の下に1本で続く（どのモデルが答えたかは出さない）
-  // 自分の質問は右の吹き出し、AIの答えは左に文だけ。考え中はAIのマークが動く。最新の答えの下にマーク
+  // 自分の質問は右の吹き出し（タップで「編集」）、AIの答えは左に文だけ。考え中はAIのマークが動く。最新の答えの下にマーク
+  const PEN = '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 2.5l3 3L5 14H2v-3z" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linejoin="round"/></svg>';
   function aiThread() {
-    const c = S.ai.info.convo || []; if (!c.length) return '';
-    const lastA = c[c.length - 1].think ? -1 : c.length - 1;
-    return `<section class="ai-chat" aria-label="AIとの会話">${c.map((x, i) => `<div class="ai-q">${esc(x.q)}</div>${x.think ? `<div class="ai-a think" aria-label="考え中">${aiMark(true, 24)}</div>` : `<div class="ai-a${x.fresh ? ' in' : ''}">${esc(x.a)}${i === c.length - 1 && x.choices && x.choices.length && S.ai.info.askOpen ? `<div class="ai-chips">${x.choices.map(t => `<button data-askq="${esc(t)}">${esc(t)}</button>`).join('')}</div>` : ''}${i === lastA ? `<div class="ai-sig">${aiMark(false, 16)}</div>` : ''}</div>`}`).join('')}</section>`;
+    const A = S.ai, c = A.info.convo || []; if (!c.length) return '';
+    const last = c[c.length - 1], lastA = last.think || last.stop ? -1 : c.length - 1;
+    const canEdit = A.info.askOpen && !A.asking;
+    return `<section class="ai-chat" aria-label="AIとの会話">${c.map((x, i) => {
+      const q = A.editing === i ? `<div class="ai-edit"><textarea id="aiE" rows="2" maxlength="120" aria-label="質問を直す">${esc(x.q)}</textarea><div class="ai-edit-b"><button class="ai-ghost" data-edcancel="1">キャンセル</button><button class="ai-ok" data-edsend="${i}">送信</button></div></div>`
+        : `<div class="ai-q${canEdit && x.row ? ' tap' : ''}${A.qmenu === i ? ' sel' : ''}" ${canEdit && x.row ? `data-qi="${i}" role="button" tabindex="0"` : ''}>${esc(x.q)}</div>${A.qmenu === i && canEdit ? `<div class="ai-qact"><button data-edit="${i}">${PEN}編集</button></div>` : ''}`;
+      const a = x.think ? `<div class="ai-a think" aria-label="考え中">${aiMark(true, 24)}</div>`
+        : x.stop ? `<div class="ai-a stop">停止しました</div>`
+        : `<div class="ai-a${x.fresh ? ' in' : ''}">${esc(x.a)}${i === c.length - 1 && x.choices && x.choices.length && A.info.askOpen ? `<div class="ai-chips">${x.choices.map(t => `<button data-askq="${esc(t)}">${esc(t)}</button>`).join('')}</div>` : ''}${i === lastA ? `<div class="ai-sig">${aiMark(false, 16)}</div>` : ''}</div>`;
+      return (A.editing === i ? q : q + a);
+    }).join('')}</section>`;
   }
   // 考える時間：質問と答えの長さで変える（決まった文でも少し考えてから出す）
   const aiThinkMs = (q, a) => Math.min(3200, Math.max(900, 600 + q.length * 22 + String(a || '').length * 14 + Math.random() * 500));
   const aiSleep = ms => new Promise(res => setTimeout(res, ms));
-  // 質問を送る：考え中のマークを出す → 決まった答えなら長さに応じて待って出す
-  // AIの言い回しを使うときは、届くまで考え中のまま（8秒で決まった答えを先に出し、15秒までに届けば差し替える）
-  async function aiAskSend(q) {
+  // 質問を送る：考え中のマークを出す → AIの答えが届いたら出す（15秒で届かなければ決まった答え）
+  // 決まった答えだけのときも、長さに応じて少し考えてから出す。opt.cut＝直して送り直す（その質問から後ろを消す）
+  async function aiAskSend(q, opt) {
+    opt = opt || {};
     const A = S.ai, I = A.info, v = S.data.current;
     const it = I.items.find(x => x.model === A.model && x.effort === A.effort);
     q = String(q || '').trim(); if (!it || !q || A.asking) return;
-    A.asking = true;
     const key = aiKey(it); A.ctx = A.ctx || {};
     I.convo = I.convo || [];
+    if (opt.cutAt != null) I.convo = I.convo.slice(0, opt.cutAt);
+    A.asking = true; A.qmenu = null; A.editing = null;
     const row = { model: it.model, effort: it.effort, q, a: '', think: true }; I.convo.push(row);
     I.convo.forEach(x => x.fresh = false);
-    A.draft = ''; renderAI(true); aiScrollEnd();
-    const t0 = Date.now();
-    const show = (t, ch) => { row.a = t; row.choices = ch; row.think = false; row.fresh = true; renderAI(true); aiScrollEnd(); };
+    A.draft = ''; A.cur = row; row.pendId = null;
+    const ta = document.getElementById('aiQ'); if (ta) { ta.value = ''; aiGrow(ta); }
+    aiRefresh(); aiScrollEnd();
+    const t0 = Date.now(), wait = async t => { const ms = aiThinkMs(q, t) - (Date.now() - t0); if (ms > 0) await aiSleep(ms); };
+    const done = () => { if (A.cur === row) { A.asking = false; A.cur = null; } };
+    const show = (t, ch) => { if (row.stop) return; row.a = t; row.choices = ch; row.think = false; row.fresh = true; done(); aiRefresh(); aiScrollEnd(); };
     try {
-      const r = await api('aiAsk', { weekId: I.weekId || (v && v.weekId), model: it.model, effort: it.effort, q, ctx: A.ctx[key] || null }, { loading: false });
+      const r = await api('aiAsk', { weekId: I.weekId || (v && v.weekId), model: it.model, effort: it.effort, q, ctx: A.ctx[key] || null, cut: opt.cut || 0 }, { loading: false });
+      row.row = r.row; row.pendId = r.pend || null;
       if (r.ctx) A.ctx[key] = r.ctx; if (r.usage) I.usage = r.usage;
       if (r.kind === 'closed') I.askOpen = false;
-      if (!r.pend) { await aiSleep(aiThinkMs(q, r.text) - (Date.now() - t0)); show(r.text, r.choices); return; }
-      const ph = api('aiPhrase', { id: r.pend }, { loading: false, quiet: true }).catch(() => null);
-      const p = await Promise.race([ph, aiSleep(8000).then(() => 'late')]);
-      if (p && p !== 'late' && p.text) { await aiSleep(aiThinkMs(q, p.text) - (Date.now() - t0)); if (p.usage) I.usage = p.usage; show(p.text, p.choices); return; }
-      show(r.text, r.choices);
-      if (p === 'late') { const p2 = await Promise.race([ph, aiSleep(7000).then(() => null)]); if (p2 && p2.text) { if (p2.usage) I.usage = p2.usage; show(p2.text, p2.choices); } }
-    } catch (e) { I.convo.pop(); A.draft = q; renderAI(true); }
-    finally { A.asking = false; }
+      if (row.stop) { if (r.row) api('aiStop', { row: r.row, id: r.pend || '' }, { loading: false, quiet: true }).catch(() => {}); return; }
+      if (!r.pend) { await wait(r.text); show(r.text, r.choices); return; }
+      const p = await Promise.race([api('aiPhrase', { id: r.pend }, { loading: false, quiet: true }).catch(() => null), aiSleep(15000).then(() => null)]);
+      if (row.stop) return;
+      const ok = p && p.text; if (ok && p.usage) I.usage = p.usage;
+      await wait(ok ? p.text : r.text);
+      show(ok ? p.text : r.text, ok ? p.choices : r.choices);
+    } catch (e) { if (!row.stop) { I.convo.pop(); A.draft = q; done(); aiRefresh(); const t = document.getElementById('aiQ'); if (t) { t.value = q; aiGrow(t); } } }
   }
-  function aiScrollEnd() { const el = document.querySelector('.ai-chat:last-of-type, .ai-list'); if (el) window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); }
+  // 止める：答えは出さず「停止しました」。届いた答えも書き込まない
+  function aiStopNow() {
+    const A = S.ai, row = A.cur; if (!row) return;
+    row.stop = true; row.think = false; A.asking = false; A.cur = null;
+    if (row.row) api('aiStop', { row: row.row, id: row.pendId || '' }, { loading: false, quiet: true }).catch(() => {});
+    aiRefresh();
+  }
+  // 会話・使用量・送るボタンだけを描き直す（入力中の文字やキーボードを消さない）
+  function aiRefresh() {
+    const A = S.ai, box = $app.querySelector('.ai-list'); if (!box) return renderAI(true);
+    const old = box.querySelector('.ai-chat'), html = aiThread();
+    if (old) { if (html) old.outerHTML = html; else old.remove(); } else if (html) box.insertAdjacentHTML('beforeend', html);
+    const u = A.info.usage || { pct: 0 }, us = $app.querySelector('.ai-use');
+    if (us) { us.querySelector('b').style.width = u.pct + '%'; us.lastElementChild.textContent = u.pct + '%'; }
+    const ex = $app.querySelector('.ai-comp > .ai-chips'); if (ex && (A.info.convo || []).length) ex.remove();
+    aiSendBtn(); bindAIChat();
+  }
+  function aiSendBtn() {
+    const A = S.ai, b = document.getElementById('aiAsk'), t = document.getElementById('aiQ'); if (!b) return;
+    const full = (A.info.usage || {}).pct >= 100;
+    b.classList.toggle('stop', !!A.asking);
+    b.setAttribute('aria-label', A.asking ? '止める' : '送る');
+    b.innerHTML = A.asking ? '<i class="sq"></i>' : '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    b.disabled = !A.asking && (full || !(t && t.value.trim()));
+  }
+  function aiGrow(t) { t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 132) + 'px'; }
+  const aiTouch = () => window.matchMedia && window.matchMedia('(pointer:coarse)').matches;
+  // 会話の中の操作：選べる質問・質問をタップ→編集・編集の送信とキャンセル
+  function bindAIChat() {
+    const A = S.ai;
+    $app.querySelectorAll('[data-askq]').forEach(b => b.onclick = () => aiAskSend(b.dataset.askq));
+    $app.querySelectorAll('[data-qi]').forEach(b => b.onclick = () => { A.qmenu = A.qmenu === +b.dataset.qi ? null : +b.dataset.qi; aiRefresh(); });
+    $app.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => { A.editing = +b.dataset.edit; A.qmenu = null; aiRefresh(); const e = document.getElementById('aiE'); if (e) { aiGrow(e); e.focus(); e.setSelectionRange(e.value.length, e.value.length); } });
+    const ec = $app.querySelector('[data-edcancel]'); if (ec) ec.onclick = () => { A.editing = null; aiRefresh(); };
+    const es = $app.querySelector('[data-edsend]'); if (es) {
+      const e = document.getElementById('aiE'), i = +es.dataset.edsend, x = (A.info.convo || [])[i];
+      e.oninput = () => { aiGrow(e); es.disabled = !e.value.trim(); };
+      es.onclick = () => { if (x && x.row) aiAskSend(e.value, { cut: x.row, cutAt: i }); };
+    }
+  }
+  function aiScrollEnd() { const sc = $app.querySelector('.ai-scroll'); if (sc) requestAnimationFrame(() => sc.scrollTo({ top: sc.scrollHeight, behavior: 'smooth' })); }
   // 買い目の操作（選ぶ・金額・全部選ぶ・買う）。入力中は描き直してもカーソルを保つ
   function bindAIBuys() {
     const A = S.ai;
@@ -1111,23 +1166,29 @@
     const sendLbl = bought ? '見る' : price ? `${fmt(price)}pt` : '無料';
     const freeTxt = I.freeUntil ? (() => { const [, mo, d] = I.freeUntil.split('-').map(Number); return `${mo}/${d}まで`; })() : '';
     const canSend = I.canBuy && !A.pend && (bought || price <= S.data.me.balance);
-    $app.innerHTML = `<header class="bar"><div style="display:flex;align-items:center;gap:10px"><button class="ibtn" id="back" aria-label="戻る" style="font-size:22px;padding-bottom:3px">‹</button><b class="sub-title">AI予想</b></div><span class="pts">持ち点<br><b>${fmt(S.data.me.balance)}</b> pt</span></header>
+    const sc0 = $app.querySelector('.ai-scroll'), top0 = sc0 ? sc0.scrollTop : 0;
+    $app.innerHTML = `<div class="ai-screen"><header class="bar"><div style="display:flex;align-items:center;gap:10px"><button class="ibtn" id="back" aria-label="戻る" style="font-size:22px;padding-bottom:3px">‹</button><b class="sub-title">AI予想</b></div><span class="pts">持ち点<br><b>${fmt(S.data.me.balance)}</b> pt</span></header>
       ${cur && !cur.closed && !cur.isMyHostWeek ? buyLed(cur) : ''}
-      ${freeTxt && I.canBuy ? `<div class="ai-free"><b>期間限定で無料</b><span>${freeTxt}</span></div>` : ''}
-      <div class="ai-list">${items}${A.pend ? aiPending(A.pend) : ''}${aiThread()}</div>
+      <div class="ai-scroll">${freeTxt && I.canBuy ? `<div class="ai-free"><b>期間限定で無料</b><span>${freeTxt}</span></div>` : ''}
+      <div class="ai-list">${items}${A.pend ? aiPending(A.pend) : ''}${aiThread()}</div></div>
       <div class="ai-dock">${bought && I.askOpen ? aiAskBox(bought) : I.canBuy ? `<div class="ai-comp">
         <div class="ai-prompt">今週の3連単を予想して</div>
         <div class="ai-row"><button class="ai-pill" id="aiPick" aria-haspopup="dialog">${esc(aiName(A.model))}<span>エフォート ${esc(aiEff(A.effort))}</span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button>
         <button class="ai-send" id="aiSend" ${canSend ? '' : 'disabled'} aria-label="${bought ? '買った予想を見る' : esc(sendLbl) + 'で予想してもらう'}"><span>${esc(sendLbl)}</span><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
-        ${!bought && price > S.data.me.balance ? '<div class="ai-err">持ち点が足りません。モデルかエフォートを下げてください</div>' : ''}</div>` : `<div class="ai-closed">${esc(I.reason || 'いまはAI予想を買えません')}</div>`}</div>`;
+        ${!bought && price > S.data.me.balance ? '<div class="ai-err">持ち点が足りません。モデルかエフォートを下げてください</div>' : ''}</div>` : `<div class="ai-closed">${esc(I.reason || 'いまはAI予想を買えません')}</div>`}</div></div>`;
+    const sc = $app.querySelector('.ai-scroll'); if (sc) sc.scrollTop = top0;
     const qi = document.getElementById('aiQ');
     if (qi) {
-      qi.oninput = () => { A.draft = qi.value; const b = document.getElementById('aiAsk'); if (b) b.disabled = !qi.value.trim() || A.asking; };
-      qi.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing && !e.shiftKey) { e.preventDefault(); aiAskSend(qi.value); } };
-      document.getElementById('aiAsk').onclick = () => aiAskSend(qi.value);
+      aiGrow(qi);
+      qi.oninput = () => { A.draft = qi.value; aiGrow(qi); aiSendBtn(); };
+      // スマホのキーボードの改行は改行のまま（送るのはボタンだけ）。パソコンは Enter で送る・Shift+Enter で改行
+      qi.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing && !e.shiftKey && !aiTouch()) { e.preventDefault(); if (!A.asking) aiAskSend(qi.value); } };
+      document.getElementById('aiAsk').onclick = () => A.asking ? aiStopNow() : aiAskSend(qi.value);
+      aiSendBtn();
     }
-    $app.querySelectorAll('[data-askq]').forEach(b => b.onclick = () => aiAskSend(b.dataset.askq));
-    document.getElementById('back').onclick = () => { S.screen = null; S.ai.fresh = null; render(); window.scrollTo(0, 0); };
+    bindAIChat();
+    document.getElementById('back').onclick = () => { S.screen = null; S.ai.fresh = null; A.qmenu = A.editing = null; document.documentElement.classList.remove('ai-on'); render(); window.scrollTo(0, 0); };
+    document.documentElement.classList.add('ai-on'); aiViewport();
     const pk = document.getElementById('aiPick'); if (pk) pk.onclick = openAIPicker;
     const sd = document.getElementById('aiSend'); if (sd) sd.onclick = () => bought ? aiScrollTo(bought) : aiSend();
     bindAIBuys();
@@ -1140,9 +1201,16 @@
     const ex = (I.convo || []).length ? '' : `<div class="ai-chips">${['水曜は何が来そう？', '本命の組は？', '天津飯が来る確率は？'].map(t => `<button data-askq="${esc(t)}">${esc(t)}</button>`).join('')}</div>`;
     return `<div class="ai-comp">${ex}
       <div class="ai-use" title="今週の使用量"><span>今週の使用量</span><i><b style="width:${u.pct}%"></b></i><span>${u.pct}%</span></div>
-      <div class="ai-askrow"><textarea id="aiQ" rows="1" maxlength="120" placeholder="${full ? '今週の質問はここまでです' : '質問する（例：水曜は何が来そう？）'}" ${full ? 'disabled' : ''} aria-label="AIに質問する">${esc(A.draft || '')}</textarea>
-      <button class="ai-send" id="aiAsk" ${A.draft && !full ? '' : 'disabled'} aria-label="送る"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
-      <div class="ai-row"><button class="ai-pill" id="aiPick" aria-haspopup="dialog">${esc(aiName(A.model))}<span>エフォート ${esc(aiEff(A.effort))}</span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button></div></div>`;
+      <textarea id="aiQ" rows="1" maxlength="120" enterkeyhint="enter" placeholder="${full ? '今週の質問はここまでです' : '質問する（例：水曜は何が来そう？）'}" ${full ? 'disabled' : ''} aria-label="AIに質問する">${esc(A.draft || '')}</textarea>
+      <div class="ai-row"><button class="ai-pill" id="aiPick" aria-haspopup="dialog">${esc(aiName(A.model))}<span>エフォート ${esc(aiEff(A.effort))}</span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button>
+      <button class="ai-go" id="aiAsk" aria-label="送る"></button></div></div>`;
+  }
+  // スマホでキーボードが出ても、上のバーと入力欄が動かないように、画面の高さを見えている高さに合わせる
+  let aiVV = false;
+  function aiViewport() {
+    const vv = window.visualViewport, set = () => { document.documentElement.style.setProperty('--vvh', (vv ? vv.height : window.innerHeight) + 'px'); if (document.documentElement.classList.contains('ai-on')) window.scrollTo(0, 0); };
+    set(); if (aiVV || !vv) return; aiVV = true;
+    vv.addEventListener('resize', set); vv.addEventListener('scroll', () => { if (document.documentElement.classList.contains('ai-on') && window.scrollY) window.scrollTo(0, 0); });
   }
   function aiScrollTo(it) { const el = document.getElementById(`ai-${it.model}-${it.effort}`); if (el) { el.scrollIntoView({ block: 'start', behavior: 'smooth' }); el.querySelector('details').open = true; } }
   // モデルとエフォートを選ぶ（Claude のモデル選びのような形）

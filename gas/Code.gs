@@ -2107,7 +2107,7 @@ const GEMINI_BASE_ = 'https://generativelanguage.googleapis.com/v1beta/';
 function geminiKey_() { return PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || ''; }
 function geminiCheck_() {
   const cache = CacheService.getScriptCache();
-  const hit = cache.get('geminiCheck4');
+  const hit = cache.get('geminiCheck5');
   if (hit) return Object.assign(JSON.parse(hit), { cached: true });
   const gk = PropertiesService.getScriptProperties().getProperty('GROQ_API_KEY') || '';
   const out = { ok: true, groqKeySet: !!gk, probe: [] };
@@ -2127,14 +2127,13 @@ function geminiCheck_() {
     const pr = aiPrompt_(q, D, hist.slice(-6));
     try {
       const t0 = Date.now();
-      const r = UrlFetchApp.fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'post', contentType: 'application/json', headers: { Authorization: 'Bearer ' + gk }, muteHttpExceptions: true,
-        payload: JSON.stringify({ model: 'qwen/qwen3.8-27b', messages: [{ role: 'system', content: pr.sys + '\n/no_think' }].concat(pr.msgs), max_tokens: 700, temperature: 0.3 }) });
-      const b = JSON.parse(r.getContentText()), raw = String((((b.choices || [])[0] || {}).message || {}).content || '');
-      const f = aiFilter_(raw, D), shown = f ? f.text : loc.text;
+      CacheService.getScriptCache().remove('aiMin' + Math.floor(Date.now() / 60000));
+      const x = aiLLM_(pr.sys, pr.msgs), raw = x ? x.text : '';
+      const f = x ? aiFilter_(raw, D) : null, shown = f ? f.text : loc.text;
       hist.push({ q, a: shown });
-      out.probe.push({ q, status: r.getResponseCode(), ms: Date.now() - t0, out: (b.usage || {}).completion_tokens, how: f ? (f.off ? 'OFF' : 'AI') : '決まった答え', a: shown.slice(0, 160) });
+      out.probe.push({ q, by: x ? x.by : 'なし', ms: Date.now() - t0, how: f ? (f.off ? 'OFF' : 'AI') : '決まった答え', a: shown.slice(0, 160), raw: f ? '' : raw.replace(/<think>[\s\S]*?<\/think>/g, '').slice(0, 100) });
     } catch (e) { out.probe.push({ q, error: String(e).slice(0, 120) }); }
   });
-  cache.put('geminiCheck4', JSON.stringify(out), 60);
+  cache.put('geminiCheck5', JSON.stringify(out), 60);
   return out;
 }
