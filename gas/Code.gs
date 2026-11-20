@@ -1251,7 +1251,7 @@ function aiSearch_(query, q) {
   try {
     const api = 'https://ja.wikipedia.org/w/api.php?format=json&utf8=1&';
     // 調べる言葉から「コツ」「とは」などを外し、賭けの買い方の言葉なら「馬券」を足して、いくつかの言い方で探す
-    const core = String(query).replace(/買い方|のコツ|コツ|とは|って何|予想ゲーム|解説|方法|仕組み|やり方|[?？]/g, ' ').replace(/\s+/g, ' ').trim();
+    const core = String(query).replace(/買い方|買い|のコツ|コツ|とは|競馬|って何|予想ゲーム|解説|方法|仕組み|やり方|[?？]/g, ' ').replace(/\s+/g, ' ').trim();
     const key = (core.split(' ')[0] || core).trim();
     const bet = /ボックス|フォーメーション|流し|3連単|三連単|連複|連単|オッズ|馬券|軸|ワイド|期待値|回収率/.test(core);
     const tries = uniq_([bet ? key + ' 馬券' : '', core, key].filter(Boolean));
@@ -1262,13 +1262,15 @@ function aiSearch_(query, q) {
       if (hits.length) { titles = hits.map(x => x.title).slice(0, 2); break; }
     }
     if (!titles.length) { AI_SEARCH_LOG_.push('wiki 0件'); return null; }
-    const ex = JSON.parse(UrlFetchApp.fetch(api + 'action=query&prop=extracts&explaintext=1&exchars=1800&titles=' + encodeURIComponent(titles.join('|')), { muteHttpExceptions: true, headers: { 'User-Agent': 'hiru-chuka-sanrentan/1.0' } }).getContentText());
-    const pages = Object.keys((ex.query || {}).pages || {}).map(k => ex.query.pages[k]).filter(p => p.extract);
+    // 記事の全文から、調べる言葉が出てくるところの前後だけを抜き出す
+    const pages = titles.map(t => { const ex = JSON.parse(UrlFetchApp.fetch(api + 'action=query&prop=extracts&explaintext=1&titles=' + encodeURIComponent(t), { muteHttpExceptions: true, headers: { 'User-Agent': 'hiru-chuka-sanrentan/1.0' } }).getContentText());
+      const pg = Object.keys((ex.query || {}).pages || {}).map(k => ex.query.pages[k])[0] || {}, full = String(pg.extract || ''), at = full.indexOf(key);
+      return { title: t, extract: at < 0 ? full.slice(0, 1500) : full.slice(Math.max(0, at - 300), at + 1500) }; }).filter(p => p.extract);
     if (!pages.length) { AI_SEARCH_LOG_.push('wiki 抜き書きなし'); return null; }
     const src = pages.map((p, k) => '［' + (k + 1) + '］' + p.title + '\n' + p.extract).join('\n\n');
     const x = aiLLM_(sys + 'この下の抜き書き（Wikipedia）だけをもとに答える。抜き書きにないことは書かない。抜き書きが質問と関係ないときは「NG」とだけ返す。昼ごはん予想ゲームにどう生かせるかを最後に一言そえる。\n\n' + src, [{ role: 'user', content: q }]);
     if (!x || !x.text.trim()) { AI_SEARCH_LOG_.push('wiki まとめ失敗'); return null; }
-    if (/^\s*NG\b/.test(x.text.replace(/<think>[\s\S]*?<\/think>/g, ''))) { AI_SEARCH_LOG_.push('wiki 関係なし ' + titles.join(',')); return { text: '調べてみましたが、質問に合う情報が見つかりませんでした。別の言い方で聞いてみてください', refs: [], by: 'Wikipedia', tokens: 0 }; }
+    if (/(^|\n)\s*NG\s*($|\n)/.test(x.text.replace(/<think>[\s\S]*?<\/think>/g, ''))) { AI_SEARCH_LOG_.push('wiki 関係なし ' + titles.join(',')); return { text: '調べてみましたが、質問に合う情報が見つかりませんでした。別の言い方で聞いてみてください', refs: [], by: 'Wikipedia', tokens: 0 }; }
     return { text: x.text.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/［\d+］/g, '').trim(), refs: pages.map(p => ({ t: 'Wikipedia「' + p.title + '」', u: 'https://ja.wikipedia.org/wiki/' + encodeURIComponent(p.title.replace(/ /g, '_')) })), by: 'Wikipedia＋' + x.by, tokens: x.tokens };
   } catch (e) { AI_SEARCH_LOG_.push('wiki ' + String(e).slice(0, 120)); }
   return null;
@@ -2229,7 +2231,7 @@ const GEMINI_BASE_ = 'https://generativelanguage.googleapis.com/v1beta/';
 function geminiKey_() { return PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || ''; }
 function geminiCheck_() {
   const cache = CacheService.getScriptCache();
-  const hit = cache.get('geminiCheck13');
+  const hit = cache.get('geminiCheck14');
   if (hit) return Object.assign(JSON.parse(hit), { cached: true });
   const gk = PropertiesService.getScriptProperties().getProperty('GROQ_API_KEY') || '';
   const out = { ok: true, groqKeySet: !!gk, probe: [] };
@@ -2262,6 +2264,6 @@ function geminiCheck_() {
       out.probe.push({ q, by, ms: Date.now() - t0, how: f ? (f.off ? 'OFF' : 'AI') : '決まった答え', a: shown.slice(0, 300), prop: prop && prop.picks, refs, raw: f ? '' : raw.replace(/<think>[\s\S]*?<\/think>/g, '').slice(0, 100) });
     } catch (e) { out.probe.push({ q, error: String(e).slice(0, 120) }); }
   });
-  cache.put('geminiCheck13', JSON.stringify(out), 60);
+  cache.put('geminiCheck14', JSON.stringify(out), 60);
   return out;
 }
