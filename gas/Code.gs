@@ -1247,6 +1247,20 @@ function aiSearch_(query, q) {
       return { text, refs, by: 'Gemini検索', tokens: (b.usageMetadata || {}).totalTokenCount || 0 };
     } catch (e) {}
   }
+  // 最後に Wikipedia（日本語版）を調べ、その抜き書きだけを使って答える（キー・請求なし）
+  try {
+    const api = 'https://ja.wikipedia.org/w/api.php?format=json&utf8=1&';
+    const sr = JSON.parse(UrlFetchApp.fetch(api + 'action=query&list=search&srlimit=3&srsearch=' + encodeURIComponent(query), { muteHttpExceptions: true, headers: { 'User-Agent': 'hiru-chuka-sanrentan/1.0' } }).getContentText());
+    const titles = (((sr.query || {}).search) || []).map(x => x.title).slice(0, 2);
+    if (!titles.length) { AI_SEARCH_LOG_.push('wiki 0件'); return null; }
+    const ex = JSON.parse(UrlFetchApp.fetch(api + 'action=query&prop=extracts&explaintext=1&exchars=1800&titles=' + encodeURIComponent(titles.join('|')), { muteHttpExceptions: true, headers: { 'User-Agent': 'hiru-chuka-sanrentan/1.0' } }).getContentText());
+    const pages = Object.keys((ex.query || {}).pages || {}).map(k => ex.query.pages[k]).filter(p => p.extract);
+    if (!pages.length) { AI_SEARCH_LOG_.push('wiki 抜き書きなし'); return null; }
+    const src = pages.map((p, k) => '［' + (k + 1) + '］' + p.title + '\n' + p.extract).join('\n\n');
+    const x = aiLLM_(sys + 'この下の抜き書き（Wikipedia）だけをもとに答える。抜き書きにないことは書かない。昼ごはん予想ゲームにどう生かせるかを最後に一言そえる。\n\n' + src, [{ role: 'user', content: q }]);
+    if (!x || !x.text.trim()) { AI_SEARCH_LOG_.push('wiki まとめ失敗'); return null; }
+    return { text: x.text.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/［\d+］/g, '').trim(), refs: pages.map(p => ({ t: 'Wikipedia「' + p.title + '」', u: 'https://ja.wikipedia.org/wiki/' + encodeURIComponent(p.title.replace(/ /g, '_')) })), by: 'Wikipedia＋' + x.by, tokens: x.tokens };
+  } catch (e) { AI_SEARCH_LOG_.push('wiki ' + String(e).slice(0, 120)); }
   return null;
 }
 // AIの答えを画面に出せる形にする（OFF・危ない言葉は定型文に、数字が合わなければ使わない）
@@ -2205,7 +2219,7 @@ const GEMINI_BASE_ = 'https://generativelanguage.googleapis.com/v1beta/';
 function geminiKey_() { return PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || ''; }
 function geminiCheck_() {
   const cache = CacheService.getScriptCache();
-  const hit = cache.get('geminiCheck11');
+  const hit = cache.get('geminiCheck12');
   if (hit) return Object.assign(JSON.parse(hit), { cached: true });
   const gk = PropertiesService.getScriptProperties().getProperty('GROQ_API_KEY') || '';
   const out = { ok: true, groqKeySet: !!gk, probe: [] };
@@ -2215,6 +2229,7 @@ function geminiCheck_() {
   const pv = [18.2, 12.0, 8.0, 6.0, 41.0, 6.0, 5.0, 3.8], probs = {};
   DAYS.forEach(d => { probs[d] = {}; names.forEach((n, i) => probs[d][i + 1] = pv[i]); });
   const D = { bought: { opus: 1 }, deadline: '11/24（火）11:00', last: '', mine: '', lv: 2, cur: names.map((n, i) => ({ waku: i + 1, name: n, pop: i + 1, odds: odds[i] })), probs, buys: [], hist: { 天津飯: { n: 6 }, 麻婆豆腐: { n: 9 } }, histDays: 18, monday: '麻婆豆腐', hostFav: { name: '麻婆豆腐', n: 9 } };
+  try { const ml = JSON.parse(UrlFetchApp.fetch('https://api.groq.com/openai/v1/models', { headers: { Authorization: 'Bearer ' + gk }, muteHttpExceptions: true }).getContentText()); out.groqModels = (ml.data || []).map(m => m.id).filter(id => /compound|search|browse/i.test(id)); } catch (e) {}
   // ユーザーが試した流れをそのまま、直前の会話を添えて通す
   const Q = ['今週のポイントから応用戦略をくわしく解説して', 'いいね、その目買っといて', 'フォーメーションの買い方のコツをネット検索して解説してみて', '明日の東京の天気をネットで調べて', 'ボックス買いって何？調べて'];
   D.memo = 'これまで5週参加。よく選ぶ品：麻婆豆腐・天津飯・回鍋肉。選ぶ品の平均は1.8番人気（人気の品を選びがち）\n成績：3連単の的中0回・日替わりの当たり6日・収支-1200pt\n先週の買い方：麻婆豆腐→天津飯→麻婆豆腐\n前の週にAIに聞いたこと：穴は？／保険をかけるならどう買う？'
@@ -2237,6 +2252,6 @@ function geminiCheck_() {
       out.probe.push({ q, by, ms: Date.now() - t0, how: f ? (f.off ? 'OFF' : 'AI') : '決まった答え', a: shown.slice(0, 300), prop: prop && prop.picks, refs, raw: f ? '' : raw.replace(/<think>[\s\S]*?<\/think>/g, '').slice(0, 100) });
     } catch (e) { out.probe.push({ q, error: String(e).slice(0, 120) }); }
   });
-  cache.put('geminiCheck11', JSON.stringify(out), 60);
+  cache.put('geminiCheck12', JSON.stringify(out), 60);
   return out;
 }
