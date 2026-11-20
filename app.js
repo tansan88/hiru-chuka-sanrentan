@@ -1045,7 +1045,7 @@
   function aiThread() {
     const A = S.ai, c = A.info.convo || []; if (!c.length) return '';
     const last = c[c.length - 1], lastA = last.think || last.stop || last.typing ? -1 : c.length - 1;
-    const canEdit = A.info.askOpen && !A.asking;
+    const canEdit = A.info.askOpen; // 答えを待っている間・流れている間でも編集できる
     return `<section class="ai-chat" aria-label="AIとの会話">${c.map((x, i) => {
       const q = A.editing === i ? `<div class="ai-edit"><textarea id="aiE" rows="2" maxlength="120" aria-label="質問を直す">${esc(x.q)}</textarea><div class="ai-edit-b"><button class="ai-ghost" data-edcancel="1">キャンセル</button><button class="ai-ok" data-edsend="${i}">送信</button></div></div>`
         : `<div class="ai-q${canEdit && x.row ? ' tap' : ''}${A.qmenu === i ? ' sel' : ''}" ${canEdit && x.row ? `data-qi="${i}" role="button" tabindex="0"` : ''}>${esc(x.q)}</div>${A.qmenu === i && canEdit ? `<div class="ai-qact"><button data-edit="${i}">${PEN}編集</button></div>` : ''}`;
@@ -1130,6 +1130,13 @@
     };
     setTimeout(step, 60);
   }
+  // 編集して送り直すときに、いま待っている（流れている）答えを打ち切る。入力欄には戻さない
+  function aiAbort() {
+    const A = S.ai, row = A.cur; if (!row) return;
+    if (row.typing) { row.typing = false; row.a = row.a.slice(0, row.typed || 0); }
+    else { row.stop = true; row.back = true; row.think = false; if (row.row) api('aiStop', { row: row.row, id: row.pendId || '', back: 1 }, { loading: false, quiet: true }).catch(() => {}); }
+    A.asking = false; A.cur = null;
+  }
   // 止める：答えは出さず「停止しました」。届いた答えも書き込まない
   function aiStopNow() {
     const A = S.ai, row = A.cur; if (!row) return;
@@ -1183,7 +1190,7 @@
     const es = $app.querySelector('[data-edsend]'); if (es) {
       const e = document.getElementById('aiE'), i = +es.dataset.edsend, x = (A.info.convo || [])[i];
       e.oninput = () => { aiGrow(e); es.disabled = !e.value.trim(); };
-      es.onclick = () => { if (x && x.row) aiAskSend(e.value, { cut: x.row, cutAt: i }); };
+      es.onclick = () => { if (x && x.row) { if (A.asking) aiAbort(); aiAskSend(e.value, { cut: x.row, cutAt: i }); } };
     }
   }
   function aiScrollEnd() { const sc = $app.querySelector('.ai-scroll'); if (sc) requestAnimationFrame(() => sc.scrollTo({ top: sc.scrollHeight, behavior: 'smooth' })); }

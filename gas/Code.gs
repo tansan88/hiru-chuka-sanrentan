@@ -257,7 +257,10 @@ const API = {
       if (f && f.off) prop = null;
       // 「買っといて」の依頼は、提案のカードと「下のボタンから買えます」でそろえる（AIの印がなければAIの買い目の1番を出す）。勝手に買ったような言い方は消す
       const buyAsk = /買っ(て|と)|買っておいて|購入して|それで(お願い|いこう)|その目で/.test(P.q);
-      if (f && !f.off && buyAsk && !prop && D.buys.length) { const b = D.buys[0]; prop = { picks: { 火: [b.picks[0]], 水: [b.picks[1]], 木: [b.picks[2]] } }; }
+      let fb = false;
+      if (f && !f.off && buyAsk && !prop && D.buys.length) { const b = D.buys[0]; prop = { picks: { 火: [b.picks[0]], 水: [b.picks[1]], 木: [b.picks[2]] } }; fb = true; }
+      // AIの印がなくて代わりにAIの買い目の1番を出すときは、文もカードの中身に合わせる（文とカードが食い違わないように）
+      if (f && fb) { const nm = k => (D.cur.find(m => m.waku === k) || {}).name || k; f = { off: false, text: 'AIの買い目の1番（' + DAYS.map(d => d + ' ' + nm(prop.picks[d][0])).join('→') + '）です。' }; }
       if (f && prop) {
         let t2 = f.text.split(/(?<=[。！])/).filter(z => !/(買いました|購入しました|登録しま|購入しま|買っておきま|買っておいた|買いますね)/.test(z) && !/下のボタン|ボタンから/.test(z)).join('').trim();
         f = { off: false, text: (t2 ? t2 + '\n' : '') + '下のボタンから買えます。' };
