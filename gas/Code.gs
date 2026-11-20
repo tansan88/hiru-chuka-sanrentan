@@ -1204,6 +1204,7 @@ function aiCheckNums_(text, D) {
   DAYS.forEach(d => Object.keys(D.probs[d] || {}).forEach(k => ok[(Math.round(D.probs[d][k] * 10) / 10).toFixed(1)] = 1));
   D.cur.forEach(m => ok[m.odds.toFixed(1)] = 1);
   D.buys.forEach(b => { ok[(Math.round(b.p * 10) / 10).toFixed(1)] = 1; ok[(Math.round(b.mul * 10) / 10).toFixed(1)] = 1; });
+  (String(D.memo || '').match(/\d+\.\d+/g) || []).forEach(n => ok[Number(n).toFixed(1)] = 1); // 覚え書きの数字（平均の人気など）
   const nums = (text.match(/\d+\.\d+/g) || []);
   return nums.every(n => ok[Number(n).toFixed(1)]);
 }
@@ -2133,7 +2134,7 @@ const GEMINI_BASE_ = 'https://generativelanguage.googleapis.com/v1beta/';
 function geminiKey_() { return PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || ''; }
 function geminiCheck_() {
   const cache = CacheService.getScriptCache();
-  const hit = cache.get('geminiCheck7');
+  const hit = cache.get('geminiCheck8');
   if (hit) return Object.assign(JSON.parse(hit), { cached: true });
   const gk = PropertiesService.getScriptProperties().getProperty('GROQ_API_KEY') || '';
   const out = { ok: true, groqKeySet: !!gk, probe: [] };
@@ -2161,6 +2162,6 @@ function geminiCheck_() {
       out.probe.push({ q, by: x ? x.by : 'なし', ms: Date.now() - t0, how: f ? (f.off ? 'OFF' : 'AI') : '決まった答え', a: shown.slice(0, 160), raw: f ? '' : raw.replace(/<think>[\s\S]*?<\/think>/g, '').slice(0, 100) });
     } catch (e) { out.probe.push({ q, error: String(e).slice(0, 120) }); }
   });
-  cache.put('geminiCheck7', JSON.stringify(out), 60);
+  cache.put('geminiCheck8', JSON.stringify(out), 60);
   return out;
 }
