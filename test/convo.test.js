@@ -2,7 +2,7 @@
 // 決まった答え（品の確率・曜日の上位・本命・穴・倍率・これまで・先週）／話題の引き継ぎ／聞き返し／モデルの範囲／話題外／トークン／締切後／AIの言い回し（キーなし）
 process.env.TZ = 'Asia/Tokyo';
 const path = require('path');
-const { ctx, SS } = require('./emu/gas_emu.js')(path.join(__dirname, '../gas/Code.gs'));
+const { ctx, SS, G } = require('./emu/gas_emu.js')(path.join(__dirname, '../gas/Code.gs'));
 let pass = 0, fail = 0; const ok = (c, m, x) => { if (c) pass++; else { fail++; console.log('FAIL', m, x === undefined ? '' : JSON.stringify(x)); } };
 const call = (action, o = {}) => { ctx.__reset(); return JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(Object.assign({ action, v: 3 }, o)) } }).content); };
 const sh = n => SS.getSheetByName(n);
@@ -61,10 +61,7 @@ try {
   r = ask('麻婆豆腐と回鍋肉ならどっちが来やすいかな、理由も教えて');
   ok(r.kind === 'cmp' && /麻婆豆腐（[\d.]+% 対 [\d.]+%）/.test(r.text), '2つの品をくらべる', r);
   r = ask('中華って好き？');
-  ok(r.kind === 'free' && r.pend, 'AIに回す質問は、先に数字の答えと受付番号', r);
-  const ph = call('aiPhrase', { token: g, id: r.pend });
-  ok(ph.ok && ph.text === '', 'キーがなければAIの言い回しは空（数字の答えのまま）', ph);
-  ok(!call('aiPhrase', { token: h, id: r.pend }).text, '他人・使い終わった受付番号では何も返らない');
+  ok(r.kind === 'free' && !r.pend && r.row > 1, 'キーがなければAIに回さず、決まった答えのまま', r);
 
   // Octopus なら穴・ホストの好み・これまで
   call('aiBuy', { token: g, weekId: wk, model: 'opus', effort: 'mid' });
@@ -86,6 +83,41 @@ try {
   ok(rows.length >= 15 && rows[0][5] === '水曜は何が来そう？', '質問と答えがシートに残る', rows.length);
   L = call('aiList', { token: g });
   ok(L.usage.used >= 15 && L.items[0].convo.length >= 14 && L.items[0].convo[0].q === '水曜は何が来そう？', '会話と使用量が一覧に入る', L.usage);
+
+  // ---- AIが答える（キーあり）：会話の流れを渡す・数字と順位を確かめる・直して送り直す・止める ----
+  G.PropertiesService.getScriptProperties().setProperty('GROQ_API_KEY', 'test');
+  let sent = null, reply = '';
+  G.UrlFetchApp.fetch = (url, o) => { sent = JSON.parse(o.payload); return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ choices: [{ message: { content: reply } }], usage: { total_tokens: 900, completion_tokens: 40 } }) }; };
+  const AI = (q, rep, extra) => { reply = rep; const a = call('aiAsk', Object.assign({ token: g, weekId: wk, model: 'opus', effort: 'mid', q }, extra || {})); const p = a.pend ? call('aiPhrase', { token: g, id: a.pend }) : null; return { a, p }; };
+  let x = AI('このホストの好みを教えて', '<think>考え</think>担当ホストがいちばん多く食べているのは麻婆豆腐です。');
+  ok(x.a.pend && x.p.text === '担当ホストがいちばん多く食べているのは麻婆豆腐です。', '決まった答えがある質問もAIが答える（考えた部分は消す）', x);
+  x = AI('どれくらい好き？', '9回食べていて、いちばん多いです。');
+  const msgs = sent.messages;
+  ok(msgs[0].role === 'system' && /Octopus/.test(msgs[0].content) && msgs.slice(-3).map(m => m.role).join() === 'user,assistant,user' && msgs[msgs.length - 3].content === 'このホストの好みを教えて' && msgs[msgs.length - 1].content === 'どれくらい好き？', '直前の会話をAIに渡す', msgs.slice(-3));
+  ok(!JSON.stringify(sent).includes('たろう') && !JSON.stringify(sent).includes('てんちょう'), 'ニックネームはAIに送らない');
+  ok(/穴＝/.test(msgs[0].content) && /このモデルで答えられること/.test(msgs[0].content), '言葉の意味とモデルでできることを渡す');
+  x = AI('水曜の本命は？', '水曜に最も来やすいのは回鍋肉です。');
+  ok(x.p.text === '', '「最も来やすい」の品が1位でなければ使わない（決まった答えのまま）', x.p);
+  x = AI('水曜の本命は？', '水曜に最も来やすいのは天津飯です。');
+  ok(/天津飯/.test(x.p.text), '1位どおりならそのまま', x.p);
+  x = AI('天気は？', 'OFF');
+  ok(x.p.kind === 'off' && /昼中華の予想のことなら/.test(x.p.text), 'OFFなら決まった一文', x.p);
+  // 直して送り直す
+  const before = call('aiList', { token: g }).convo.length;
+  const cutRow = x.a.row;
+  x = AI('水曜の穴は？', '水曜は天津飯が来やすいです。', { cut: cutRow });
+  let C = call('aiList', { token: g }).convo;
+  ok(C.length === before && C[C.length - 1].q === '水曜の穴は？' && !C.some(c => c.q === '天気は？'), '直して送り直すと、その質問から後ろが消える', C.slice(-2));
+  // 止める
+  reply = 'まだ届かない答え';
+  const sa = call('aiAsk', { token: g, weekId: wk, model: 'opus', effort: 'mid', q: '木曜は？' });
+  call('aiStop', { token: g, row: sa.row, id: sa.pend });
+  const sp = call('aiPhrase', { token: g, id: sa.pend });
+  C = call('aiList', { token: g }).convo;
+  ok(sp.text === '' && C[C.length - 1].stop && C[C.length - 1].a === '', '止めた質問には答えを書かない', [sp, C[C.length - 1]]);
+  x = AI('じゃあ火曜は？', '火曜は麻婆豆腐です。');
+  ok(!sent.messages.some(m => m.content === '木曜は？' || m.content === '天気は？'), '消した・止めた質問はAIに渡さない');
+  G.PropertiesService.getScriptProperties().deleteProperty('GROQ_API_KEY');
   // トークン切れ
   sh('設定').data.find(x => x[0] === 'AI会話のトークン（1週）')[1] = 5;
   r = ask('本命は？');
