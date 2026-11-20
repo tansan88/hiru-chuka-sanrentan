@@ -848,7 +848,7 @@ html.kb .ai-screen>.ai-dock{padding-bottom:6px}
 .ai-refs a{color:var(--sub);text-decoration:underline;word-break:break-all}
 
 /* 遊び方のタブ */
-.rl-tabs{display:flex;gap:2px;padding:0 10px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.rl-tabs{position:sticky;top:var(--stick,52px);z-index:4;background:#FFF;display:flex;gap:2px;padding:0 10px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
 .rl-tabs::-webkit-scrollbar{display:none}
 .rl-tabs button{flex:none;border:0;background:none;padding:9px 12px;font-size:13px;font-weight:700;color:var(--mute);border-bottom:3px solid transparent;font-family:inherit}
 .rl-tabs button.on{color:var(--turf);font-weight:900;border-bottom-color:var(--gold)}
@@ -860,3 +860,8 @@ html.kb .ai-screen>.ai-dock{padding-bottom:6px}
 .rl-sum{display:flex;justify-content:space-between;border-top:1px dashed var(--line2);padding-top:7px}
 .rl-nav{display:flex;justify-content:space-between;padding-top:4px}
 .rl-nav button{border:0;background:none;color:var(--turf);font-weight:700;font-size:13px;padding:8px 0;font-family:inherit}
+
+.rl-page{background:#FFF;min-height:calc(100dvh - 110px);padding:16px 16px 32px;font-size:14px;gap:14px}
+.ai-sec .ai-help{margin-left:auto;border:0;background:none;color:var(--turf);font-size:12px;font-weight:700;text-decoration:underline;padding:4px 0;font-family:inherit}
+.ai-sec{display:flex;align-items:center}
+.ai-freeln{padding:10px 16px 0;font-size:12px;font-weight:700;color:var(--red)}

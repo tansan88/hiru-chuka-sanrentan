@@ -876,20 +876,19 @@
     return `<div><b>中止の日</b>　${sub('メニュー外を食べた日や休みの日がある週は、使ったptを全額返します。当たり・はずれは記録だけ残ります。')}</div>
       <div><b>持ち点が100ptを切ったら</b>　${sub(`「ptを補充する」から、豆知識クイズ（満額＋${fmt(fullPt('quiz'))}pt）かレビュー（満額＋${fmt(fullPt('review'))}pt）で補充できます。${esc(refillRuleTxt())}`)}</div>`;
   }
+  // 遊び方は専用のページ。上のタブで各機能の説明を切り替える。戻ると開いた元の画面へ
   function openRule(tab) {
     S.ruleTab = tab || S.ruleTab || 'flow';
-    openLayer(`<div class="scrim" data-close></div><div class="sheet" role="dialog" aria-label="遊び方"><div class="grab"><span></span></div>
-      <div class="sh"><h2>遊び方</h2><button class="xbtn" data-close aria-label="閉じる">✕</button></div>
-      <div class="rl-tabs" role="tablist"></div><div class="rule" id="ruleBody" style="min-height:62vh"></div></div>`);
-    const draw = () => {
-      const k = RULE_TABS.findIndex(x => x[0] === S.ruleTab), prev = RULE_TABS[k - 1], next = RULE_TABS[k + 1];
-      $layer.querySelector('.rl-tabs').innerHTML = RULE_TABS.map(([id, nm]) => `<button role="tab" aria-selected="${id === S.ruleTab}" class="${id === S.ruleTab ? 'on' : ''}" data-rt="${id}">${nm}</button>`).join('');
-      const b = document.getElementById('ruleBody');
-      b.innerHTML = ruleBody(S.ruleTab) + `<div class="rl-nav">${prev ? `<button data-rt="${prev[0]}">‹ ${prev[1]}</button>` : '<span></span>'}${next ? `<button data-rt="${next[0]}">${next[1]} ›</button>` : ''}</div>`;
-      b.scrollTop = 0;
-      $layer.querySelectorAll('[data-rt]').forEach(x => x.onclick = () => { S.ruleTab = x.dataset.rt; draw(); });
-    };
-    draw();
+    if (S.screen !== 'rule') S.ruleBack = S.screen || null;
+    closeLayer(); document.documentElement.classList.remove('ai-on'); S.screen = 'rule'; render(); window.scrollTo(0, 0);
+  }
+  function renderRule() {
+    const k = RULE_TABS.findIndex(x => x[0] === S.ruleTab), prev = RULE_TABS[k - 1], next = RULE_TABS[k + 1];
+    $app.innerHTML = subBar('遊び方') + `<nav class="rl-tabs" role="tablist">${RULE_TABS.map(([id, nm]) => `<button role="tab" aria-selected="${id === S.ruleTab}" class="${id === S.ruleTab ? 'on' : ''}" data-rt="${id}">${nm}</button>`).join('')}</nav>
+      <div class="rule rl-page">${ruleBody(S.ruleTab)}<div class="rl-nav">${prev ? `<button data-rt="${prev[0]}">‹ ${prev[1]}</button>` : '<span></span>'}${next ? `<button data-rt="${next[0]}">${next[1]} ›</button>` : ''}</div></div>`;
+    const hb = $app.querySelector('.bar'), tb = $app.querySelector('.rl-tabs'); if (hb && tb) tb.style.top = hb.offsetHeight + 'px';
+    document.getElementById('back').onclick = () => { S.screen = S.ruleBack || null; S.ruleBack = null; if (S.screen === 'ai') renderAI(); else render(); window.scrollTo(0, 0); };
+    $app.querySelectorAll('[data-rt]').forEach(x => x.onclick = () => { S.ruleTab = x.dataset.rt; renderRule(); window.scrollTo(0, 0); const t = $app.querySelector('.rl-tabs .on'); if (t) t.scrollIntoView({ inline: 'center', block: 'nearest' }); });
   }
 
   // ---------- お知らせ ----------
@@ -1255,7 +1254,7 @@
       <button class="ai-down" id="aiDown" aria-label="いちばん下へ" hidden><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3.5 8.5L8 13l4.5-4.5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <div class="ai-dock">${bought && I.askOpen ? aiAskBox(bought) : I.canBuy ? `<div class="ai-comp">
         <div class="ai-prompt">今週の3連単を予想して</div>
-        <div class="ai-row"><button class="ai-pill" id="aiPick" aria-haspopup="dialog" aria-label="メニュー">${aiMark(false, 16)}${esc(aiName(A.model))}<span>エフォート ${esc(aiEff(A.effort))}</span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button>
+        <div class="ai-row"><button class="ai-pill" id="aiPick" aria-haspopup="dialog" aria-label="モデルの選択">${aiMark(false, 16)}${esc(aiName(A.model))}<span>エフォート ${esc(aiEff(A.effort))}</span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button>
         <button class="ai-send" id="aiSend" ${canSend ? '' : 'disabled'} aria-label="${bought ? '買った予想を見る' : esc(sendLbl) + 'で予想してもらう'}"><span>${esc(sendLbl)}</span><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
         ${!bought && price > S.data.me.balance ? '<div class="ai-err">持ち点が足りません。モデルかエフォートを下げてください</div>' : ''}</div>` : `<div class="ai-closed">${esc(I.reason || 'いまはAI予想を買えません')}</div>`}</div></div>`;
     const sc = $app.querySelector('.ai-scroll'); if (sc) sc.scrollTop = top0;
@@ -1285,7 +1284,7 @@
     return `<div class="ai-comp">${ex}
       ${u.pct >= 80 ? `<div class="ai-near">${full ? '今週の質問はここまでです（月曜にリセット）' : '今週の使用量が残りわずかです'}</div>` : ''}
       <textarea id="aiQ" rows="1" maxlength="120" enterkeyhint="enter" placeholder="${full ? '今週の質問はここまでです' : '質問する（例：水曜は何が来そう？）'}" ${full ? 'disabled' : ''} aria-label="AIに質問する">${esc(A.draft || '')}</textarea>
-      <div class="ai-row"><button class="ai-pill" id="aiPick" aria-haspopup="dialog" aria-label="メニュー">${aiMark(false, 16)}${esc(aiName(A.model))}<span>エフォート ${esc(aiEff(A.effort))}</span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button>
+      <div class="ai-row"><button class="ai-pill" id="aiPick" aria-haspopup="dialog" aria-label="モデルの選択">${aiMark(false, 16)}${esc(aiName(A.model))}<span>エフォート ${esc(aiEff(A.effort))}</span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button>
       <button class="ai-go" id="aiAsk" aria-label="送る"></button></div></div>`;
   }
   // 本家のように：上のバー・電光と下の入力欄は会話の上に重ねて半透明にし、会話はその下まで流れる
@@ -1321,15 +1320,19 @@
     const draw = () => {
       const box = $layer.querySelector('.ai-pk'); if (!box) return;
       const u = I.usage || { pct: 0 };
-      box.innerHTML = `${I.items.length ? `<div class="ai-sec">今週の使用量</div><div class="ai-usebox"><div class="ai-use"><i><b style="width:${u.pct}%"></b></i><span>${u.pct}%</span></div><small>AIへの質問で使います。月曜の出馬表の公開でリセット</small></div>` : ''}<div class="ai-sec">モデル</div>${I.models.map(x => `<button class="ai-opt${x.id === m ? ' on' : ''}" data-m="${x.id}"><span class="t"><b>${esc(x.name)}</b><small>${esc(x.desc)}</small></span><span class="p">${I.prices[x.id][e] ? fmt(I.prices[x.id][e]) + 'pt' : `<b class="fr">無料</b><s>${fmt(I.basePrices[x.id][e])}pt</s>`}</span><i class="ck" aria-hidden="true"></i></button>`).join('')}
+      // 説明は遊び方に任せて、選ぶことだけ。無料の間は「期間限定で無料」を1か所だけ出す
+      const free = !I.prices[m][e], fu = I.freeUntil ? (([, mo, d]) => `${mo}/${d}`)(I.freeUntil.split('-').map(Number)) : '';
+      box.innerHTML = `${I.items.length ? `<div class="ai-sec">今週の使用量</div><div class="ai-usebox"><div class="ai-use"><i><b style="width:${u.pct}%"></b></i><span>${u.pct}%</span></div></div>` : ''}<div class="ai-sec">モデル<button class="ai-help" id="aiHelp">違いは遊び方へ</button></div>${I.models.map(x => `<button class="ai-opt${x.id === m ? ' on' : ''}" data-m="${x.id}"><span class="t"><b>${esc(x.name)}</b></span><span class="p">${fmt(I.basePrices[x.id][e])}pt</span><i class="ck" aria-hidden="true"></i></button>`).join('')}
         <div class="ai-sec">エフォート</div><div class="ai-seg" role="radiogroup">${I.efforts.map(x => `<button role="radio" aria-checked="${x.id === e}" class="${x.id === e ? 'on' : ''}" data-e="${x.id}">${esc(x.name)}</button>`).join('')}</div>
-        <div style="padding:6px 16px 0"><button class="btn gold block" id="aiOk">${esc(aiName(m))}・エフォート ${esc(aiEff(e))}（${I.prices[m][e] ? fmt(I.prices[m][e]) + 'pt' : '無料'}）</button></div>`;
+        ${free ? `<div class="ai-freeln">期間限定で無料${fu ? `（${fu}まで）` : ''}</div>` : ''}
+        <div style="padding:8px 16px 0"><button class="btn gold block" id="aiOk">決定</button></div>`;
+      document.getElementById('aiHelp').onclick = () => openRule('ai');
       box.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { m = b.dataset.m; draw(); });
       box.querySelectorAll('[data-e]').forEach(b => b.onclick = () => { e = b.dataset.e; draw(); });
       document.getElementById('aiOk').onclick = () => { A.model = m; A.effort = e; store.set('ai_model', m); store.set('ai_effort', e); closeLayer(); renderAI(); };
     };
-    openLayer(`<div class="scrim" data-close></div><div class="sheet" role="dialog" aria-label="メニュー"><div class="grab"><span></span></div>
-      <div class="sh"><h2>メニュー</h2><button class="xbtn" data-close aria-label="閉じる">✕</button></div><div class="ai-pk"></div></div>`);
+    openLayer(`<div class="scrim" data-close></div><div class="sheet" role="dialog" aria-label="モデルの選択"><div class="grab"><span></span></div>
+      <div class="sh"><h2>モデルの選択</h2><button class="xbtn" data-close aria-label="閉じる">✕</button></div><div class="ai-pk"></div></div>`);
     draw();
   }
   async function aiSend() {
@@ -1357,6 +1360,7 @@
   }
   function renderSub() {
     const sc = S.screen;
+    if (sc === 'rule') return renderRule();
     if (sc === 'history') {
       const rows = (S.hist || []).map(h => `<button class="hrow" data-w="${esc(h.weekId)}"><div style="min-width:0"><b>${esc(h.title)}</b><small>${esc(h.dates)}</small></div><div class="mm">${h.marks.map(k => `<span class="${k === 'hit' ? 'hit' : k === 'cancel' ? 'cancel' : k === 'miss' ? 'miss' : 'none'}">${k === 'hit' ? '✓' : k === 'cancel' ? '−' : k === 'miss' ? MISS_X : ''}</span>`).join('')}</div><span class="nv" style="color:${h.net > 0 ? 'var(--turf)' : 'var(--sub)'}">${h.played ? (h.status === '返還' ? '±0' : signed(h.net || 0)) : '—'}</span><span style="color:var(--mute)">›</span></button>`).join('');
       $app.innerHTML = subBar('過去の結果') + `<div style="background:#FFF"><div class="hrow th"><span>レース</span><span>火水木</span><span style="text-align:right">収支</span><span></span></div>${rows || '<p style="padding:16px;color:var(--sub);margin:0">まだ結果はありません</p>'}</div>`;
