@@ -798,7 +798,12 @@ input[type=date]:disabled{color:var(--sub);background:var(--bg)}
 .ai-go .sq{width:12px;height:12px;border-radius:2px;background:#FFF}
 /* AI画面：上のバー・電光・入力欄は動かさず、会話だけを動かす */
 html.ai-on,html.ai-on body{overflow:hidden;overscroll-behavior:none}
-.ai-screen{height:var(--vvh,100dvh);display:flex;flex-direction:column;overflow:hidden}
+.ai-screen{position:fixed;left:0;right:0;top:var(--vvt,0px);height:var(--vvh,100dvh);max-width:inherit;margin:0 auto;display:flex;flex-direction:column;overflow:hidden;z-index:5;background:var(--bg)}
+/* キーボードが出ているときは、入力欄の下の余白をなくして会話を広く見せる */
+html.kb .ai-screen>.ai-dock{padding-bottom:6px}
+.ai-near{font-size:11.5px;color:var(--red,#C0392B);font-weight:700;padding:0 4px 4px}
+.ai-usebox{padding:2px 16px 8px}.ai-usebox .ai-use{margin-bottom:4px;font-size:13px}.ai-usebox small{color:var(--mute);font-size:11.5px}
+.ai-a.typing .ai-t::after{content:'';display:inline-block;width:7px;height:7px;margin-left:3px;border-radius:50%;background:var(--turf);vertical-align:middle;opacity:.7}
 .ai-screen>.bar,.ai-screen>.ledC{flex:none;position:relative;top:auto}
 .ai-scroll{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 .ai-screen>.ai-dock{flex:none;position:relative}
