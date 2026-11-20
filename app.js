@@ -842,35 +842,54 @@
       S.screen = m; render();
     });
   }
-  function openRule() {
+  // 遊び方：タブで分ける（流れ／買い方／配当／AI予想／その他）。機能を足すときはタブを増やす
+  const RULE_TABS = [['flow', '流れ'], ['buy', '買い方'], ['pay', '配当'], ['ai', 'AI予想'], ['etc', 'その他']];
+  function ruleBody(t) {
     const o = S.data.odds || [2, 3, 4.5, 6, 8, 10, 13, 16];
-    openLayer(`<div class="scrim" data-close></div><div class="sheet" role="dialog" aria-label="遊び方"><div class="grab"><span></span></div>
-      <div class="sh"><h2>遊び方</h2><button class="xbtn" data-close aria-label="閉じる">✕</button></div>
-      <div class="rule"><p style="margin:0;font-size:14px;font-weight:700">火・水・木に食べるお昼を、1日ずつ当てるゲームです。</p>
+    const sub = s => `<span style="color:var(--sub)">${s}</span>`;
+    if (t === 'flow') return `<p style="margin:0;font-size:14px;font-weight:700">火・水・木に食べるお昼を、1日ずつ当てるゲームです。</p>
       <div class="steps">
         <div><span class="d" style="background:var(--turf)">月</span><div><b>出馬表の公開</b><br><span class="s">今週のメニューと人気（オッズ）を公開します。</span></div></div>
-        <div><span class="d" style="background:var(--red)">火 昼前</span><div><b>締め切り</b><br><span class="s">火・水・木の列で、それぞれ1つ以上の丸をタップして買います。何組でも買えて、締切までは取り消せます。同じ品を2日以上選んでもOK。</span></div></div>
+        <div><span class="d" style="background:var(--red)">火 昼前</span><div><b>締め切り</b><br><span class="s">それまでに買い目を買います。締切までは取り消せます。</span></div></div>
         <div><span class="d" style="background:var(--gold);color:var(--ink)">火〜木</span><div><b>毎日発表</b><br><span class="s">その日に食べたものが出馬表に出ます。</span></div></div>
         <div><span class="d" style="background:var(--ink)">木</span><div><b>結果が確定</b><br><span class="s">獲得ptが「結果」タブに出ます。</span></div></div>
       </div>
-      <div class="ptbox"><b style="font-size:14px">ptのしくみ</b>
-        <div style="color:var(--sub);font-size:12px">最初の持ち点は全員 <b style="color:var(--ink)">10,000pt</b>。1日に複数の品を選ぶと、その組み合わせの数が<b style="color:var(--ink)">点数</b>になります（例：火2品×水1品×木2品＝4点）。使うのは <b style="color:var(--ink)">1点あたりのpt（100pt単位）× 点数</b>で、買った時点で持ち点から引かれ、結果が確定すると獲得ptが加わります。</div>
-        <div><b>日替わりpt</b>　当たった日ごとに、1点につき<br><b style="color:var(--turf)">1点あたりのpt × 1/3 × その品のオッズ</b><small style="color:var(--sub)">（端数は切り捨て。その品を含む点の数だけもらえます）</small></div>
-        <div><b>3連単</b>　3日とも当たった1点に、さらに<br><b style="color:var(--red)">1点あたりのpt × 3品のオッズのかけ算</b></div>
-        <div style="border-top:1px dashed var(--line2);padding-top:8px;color:var(--sub);font-size:12px">例：1点1,000ptで、1・2・3番人気（2.0・3.0・4.5倍）を<br>3日とも当てると 666＋1,000＋1,500＋27,000 ＝ <b style="color:var(--ink);font-size:14px">30,166pt</b><br>火曜だけ当たったら <b style="color:var(--ink)">666pt</b>（収支 −334pt）</div>
-        <div style="color:var(--sub);font-size:12px">倍率は、ホストが並べた順の<b style="color:var(--ink)">基本の倍率</b>（下の表）を、<b style="color:var(--ink)">みんなが使ったpt</b>で補正したものです。ptが多く集まった品は下がり、少ない品は上がります（基本の0.6〜1.6倍の範囲）。「○番人気」は今の倍率の低い順で、<b style="color:var(--ink)">締切の時点の倍率</b>で確定します。</div>
-        <div class="oddsg">${o.slice(0, 8).map((x, i) => `<span>${i + 1}番目 <b>${Number.isInteger(x) && x >= 10 ? x : oddsTxt(x)}</b></span>`).join('')}</div>
-      </div>
-      <div class="ptbox"><b style="font-size:14px">AI予想</b>
-        <div style="color:var(--sub);font-size:12px">公開した出馬表・いまの倍率・これまでの結果・食事の記録から、今週の3連単を統計で読みます。外れても恨みっこなし。</div>
-        <div><b>モデル</b>　何を読むか<div class="ai-rl"><span><b>Hakkaku</b>人気順の当たりやすさだけ</span><span><b>Shumainet</b>＋料理ごとの出やすさ・曜日の傾向・同じ料理の続きやすさ・月曜に食べたもの</span><span><b>Octopus</b>＋担当ホストの週の傾向・よく食べるもの・穴（当たりやすさの割に倍率が高い品）</span></div></div>
-        <div><b>エフォート</b>　どこまで読むか<div class="ai-rl"><span><b>低</b>直近4週を読む。買い目1点</span><span><b>中</b>これまでの週を全部読む。買い目3点</span><span><b>高</b>全部の週を200通りに入れ替えて読み直し、その平均で予想（ぶれにくい）。自信度つき。買い目5点</span></div></div>
-        <div style="color:var(--sub);font-size:12px">値段はモデル×エフォートで決まり、選ぶ画面に出ます（期間限定で無料の間は0pt）。同じモデル×エフォートは1週に1回で、もう一度送ると前の予想が出ます（ptはかかりません）。担当ホストと締切後は買えません（買った予想は見られます）。買った予想は自分にしか見えません。</div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--sub)">
-        <div><b style="color:var(--ink)">中止の日</b>　メニュー外を食べた日や休みの日がある週は、使ったptを全額返します。当たり・はずれは記録だけ残ります。</div>
-        <div><b style="color:var(--ink)">持ち点が100ptを切ったら</b>　「ptを補充する」から、豆知識クイズ（満額＋${fmt(fullPt('quiz'))}pt）かレビュー（満額＋${fmt(fullPt('review'))}pt）で補充できます。${esc(refillRuleTxt())}</div>
-      </div></div></div>`);
+      <div>${sub('最初の持ち点は全員 <b style="color:var(--ink)">10,000pt</b>。買った時点で持ち点から引かれ、結果が確定すると獲得ptが加わります。')}</div>`;
+    if (t === 'buy') {
+      const row = (d, on) => `<div class="rl-row"><b>${d}</b>${[1, 2, 3, 4, 5, 6, 7, 8].map(k => `<i class="${on.indexOf(k) >= 0 ? 'on' : ''}">${k}</i>`).join('')}</div>`;
+      return `<p style="margin:0">火・水・木の列で、それぞれ1つ以上の丸をタップします。1日に何品でも選べて、組み合わせの数が<b>点数</b>になります。</p>
+      <div class="rl-form">${row('火', [1, 5])}${row('水', [5])}${row('木', [1, 2])}<div class="rl-sum"><span>火2 × 水1 × 木2</span><b>＝ 4点</b></div></div>
+      <div><b>使うpt</b>　${sub('1点あたりのpt（100pt単位）× 点数。上の例で1点100ptなら400pt')}</div>
+      <div><b>何組でも</b>　${sub('買い方を変えて何組でも買えます。締切までは組ごとに取り消せます（ptは戻ります）')}</div>
+      <div><b>同じ品</b>　${sub('同じ品を2日以上選んでもOK')}</div>`;
+    }
+    if (t === 'pay') return `<div><b>日替わりpt</b>　当たった日ごとに、1点につき<br><b style="color:var(--turf)">1点あたりのpt × 1/3 × その品のオッズ</b><br>${sub('端数は切り捨て。その品を含む点の数だけもらえます')}</div>
+      <div><b>3連単</b>　3日とも当たった1点に、さらに<br><b style="color:var(--red)">1点あたりのpt × 3品のオッズのかけ算</b></div>
+      <div class="ptbox">${sub('例：1点1,000ptで、1・2・3番人気（2.0・3.0・4.5倍）を3日とも当てると')}<br>666＋1,000＋1,500＋27,000 ＝ <b style="font-size:14px">30,166pt</b><br>${sub('火曜だけ当たったら <b style="color:var(--ink)">666pt</b>（収支 −334pt）')}</div>
+      <div><b>倍率</b>　${sub('ホストが並べた順の基本の倍率（下の表）を、みんなが使ったptで補正したものです。ptが多く集まった品は下がり、少ない品は上がります（基本の0.6〜1.6倍の範囲）。「○番人気」は今の倍率の低い順で、<b style="color:var(--ink)">締切の時点の倍率</b>で確定します。')}</div>
+      <div class="oddsg">${o.slice(0, 8).map((x, i) => `<span>${i + 1}番目 <b>${Number.isInteger(x) && x >= 10 ? x : oddsTxt(x)}</b></span>`).join('')}</div>`;
+    if (t === 'ai') return `<p style="margin:0">${sub('出馬表・いまの倍率・これまでの結果・食事の記録から、今週の3連単を統計で読みます。外れても恨みっこなし。')}</p>
+      <div><b>モデル</b>　何を読むか<div class="ai-rl"><span><b>Hakkaku</b>人気の順番から読む</span><span><b>Shumainet</b>＋料理・曜日ごとの出やすさ、同じ料理の続きやすさ、月曜に食べたもの</span><span><b>Octopus</b>＋担当ホストの好み、穴（当たりやすさの割に倍率が高い品）</span></div></div>
+      <div><b>エフォート</b>　どこまで読むか<div class="ai-rl"><span><b>低</b>直近4週を読む。買い目1点</span><span><b>中</b>これまでの週を全部読む。買い目3点</span><span><b>高</b>200通りに読み直してその平均で予想（ぶれにくい）。買い目5点</span></div></div>
+      <div><b>今週の使用量</b>　${sub('AIへの質問で使います（答えが長いほど多く使います）。月曜の出馬表の公開で0%にもどります。')}</div>
+      <div>${sub('値段はモデル×エフォートで決まります（期間限定で無料の間は0pt）。同じモデル×エフォートは1週に1回で、もう一度選ぶと前の予想が出ます。担当ホストと締切後は買えません。買った予想は自分にしか見えません。')}</div>`;
+    return `<div><b>中止の日</b>　${sub('メニュー外を食べた日や休みの日がある週は、使ったptを全額返します。当たり・はずれは記録だけ残ります。')}</div>
+      <div><b>持ち点が100ptを切ったら</b>　${sub(`「ptを補充する」から、豆知識クイズ（満額＋${fmt(fullPt('quiz'))}pt）かレビュー（満額＋${fmt(fullPt('review'))}pt）で補充できます。${esc(refillRuleTxt())}`)}</div>`;
+  }
+  function openRule(tab) {
+    S.ruleTab = tab || S.ruleTab || 'flow';
+    openLayer(`<div class="scrim" data-close></div><div class="sheet" role="dialog" aria-label="遊び方"><div class="grab"><span></span></div>
+      <div class="sh"><h2>遊び方</h2><button class="xbtn" data-close aria-label="閉じる">✕</button></div>
+      <div class="rl-tabs" role="tablist"></div><div class="rule" id="ruleBody" style="min-height:62vh"></div></div>`);
+    const draw = () => {
+      const k = RULE_TABS.findIndex(x => x[0] === S.ruleTab), prev = RULE_TABS[k - 1], next = RULE_TABS[k + 1];
+      $layer.querySelector('.rl-tabs').innerHTML = RULE_TABS.map(([id, nm]) => `<button role="tab" aria-selected="${id === S.ruleTab}" class="${id === S.ruleTab ? 'on' : ''}" data-rt="${id}">${nm}</button>`).join('');
+      const b = document.getElementById('ruleBody');
+      b.innerHTML = ruleBody(S.ruleTab) + `<div class="rl-nav">${prev ? `<button data-rt="${prev[0]}">‹ ${prev[1]}</button>` : '<span></span>'}${next ? `<button data-rt="${next[0]}">${next[1]} ›</button>` : ''}</div>`;
+      b.scrollTop = 0;
+      $layer.querySelectorAll('[data-rt]').forEach(x => x.onclick = () => { S.ruleTab = x.dataset.rt; draw(); });
+    };
+    draw();
   }
 
   // ---------- お知らせ ----------

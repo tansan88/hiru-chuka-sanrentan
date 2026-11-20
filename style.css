@@ -846,3 +846,17 @@ html.kb .ai-screen>.ai-dock{padding-bottom:6px}
 .ai-refs{margin-top:8px;display:flex;flex-direction:column;gap:2px;font-size:12px;white-space:normal}
 .ai-refs span{color:var(--mute);font-weight:700}
 .ai-refs a{color:var(--sub);text-decoration:underline;word-break:break-all}
+
+/* 遊び方のタブ */
+.rl-tabs{display:flex;gap:2px;padding:0 10px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.rl-tabs::-webkit-scrollbar{display:none}
+.rl-tabs button{flex:none;border:0;background:none;padding:9px 12px;font-size:13px;font-weight:700;color:var(--mute);border-bottom:3px solid transparent;font-family:inherit}
+.rl-tabs button.on{color:var(--turf);font-weight:900;border-bottom-color:var(--gold)}
+.rl-form{background:#F7F9F7;border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:7px}
+.rl-row{display:flex;align-items:center;gap:5px}
+.rl-row b{width:18px;color:var(--turf)}
+.rl-row i{font-style:normal;width:24px;height:24px;border-radius:50%;border:1.5px solid #C9CFCB;display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--sub);background:#FFF}
+.rl-row i.on{background:var(--turf);border-color:var(--turf);color:#FFF}
+.rl-sum{display:flex;justify-content:space-between;border-top:1px dashed var(--line2);padding-top:7px}
+.rl-nav{display:flex;justify-content:space-between;padding-top:4px}
+.rl-nav button{border:0;background:none;color:var(--turf);font-weight:700;font-size:13px;padding:8px 0;font-family:inherit}
