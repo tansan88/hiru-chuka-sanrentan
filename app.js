@@ -291,6 +291,8 @@
     return d ? `あと${d}日と${h % 24}時間` : h ? `あと${h}時間` : `あと${Math.max(1, Math.round(ms / 60e3))}分`;
   }
   // 組のカード（あなたの買い目）
+  // 1組の「当たれば」：1点の組は「当たれば」、何点もある組は「当たれば最大」。何組も合わせた数は「全部で最大」
+  const backLbl = n => n > 1 ? '当たれば最大' : '当たれば';
   function setCard(v, s, opt) {
     opt = opt || {};
     const res = opt.res || {};
@@ -298,8 +300,11 @@
     const rows = DAYS.map(d => `<div class="fc-rw"><em>${d}</em><span class="fc-its">${s.picks[d].map(w => `<span class="fc-it ${res[d] ? (res[d] === w ? 'h' : 'm') : ''}">${waku(w)}${esc(name(w))}</span>`).join('')}</span></div>`).join('');
     const right = opt.del ? `<button class="fc-del" data-del="${s.set}">取り消す</button>` : (opt.badge || '<span></span>');
     const tag = s.from ? `<span class="fc-tag">${esc(s.from)}</span>` : '';
-    const sum = opt.ret !== undefined ? `<span>使った ${fmt(s.cost)}pt → <b class="${opt.ret > 0 ? 'plus' : ''}">${opt.ret > 0 ? '+' + fmt(opt.ret) : '0'}pt</b></span>` : `<b>${fmt(s.cost)}pt</b>`;
-    return `<div class="fc-set${opt.glow ? ' just' : ''}"><div class="fc-rows">${rows}</div>${right}<div class="fc-sum"><span>${s.points}点 × ${fmt(s.bet)}pt${tag}</span>${sum}</div></div>`;
+    const sum = opt.ret !== undefined ? `<span>使った ${fmt(s.cost)}pt → <b class="${opt.ret > 0 ? 'plus' : ''}">${opt.ret > 0 ? '+' + fmt(opt.ret) : '0'}pt</b></span>` : '';
+    // 結果が出る前（と発表の途中）は、この組が当たったときに戻るptを1行に添える（外れが決まった組は出さない）
+    const mx = opt.pay ? maxPay(v, [s], res) : 0;
+    const back = opt.pay && mx > 0 ? `<span class="fc-back">${backLbl(s.points)} <b>${fmt(mx)}</b>pt</span>` : '';
+    return `<div class="fc-set${opt.glow ? ' just' : ''}"><div class="fc-rows">${rows}</div>${right}<div class="fc-sum"><span>${s.points}点 × ${fmt(s.bet)}pt　<b class="fc-cost">${fmt(s.cost)}pt</b>${tag}</span>${sum || back}</div></div>`;
   }
   // 上の電光（予想タブ・AI予想の画面）。買う前は4つの話題を札ごと流し、買ったあとは受付を流し続ける
   function buyLed(v) {
@@ -365,7 +370,7 @@
     const rows = v.menus.map(m => `<div class="tr">${waku(m.waku)}${nameCell(m, true)}${oddsCell(m)}${DAYS.map(d => { const on = S.sel[d].indexOf(m.waku) >= 0; return `<button class="dot ${on ? 'on' : ''}" data-day="${d}" data-waku="${m.waku}" aria-pressed="${on}" aria-label="${d} ${esc(m.name)}"></button>`; }).join('')}</div>`).join('');
     const glow = S.glowSets || [];
     const list = sets.length
-      ? sets.map(s => setCard(v, s, { del: true, glow: glow.indexOf(s.set) >= 0 })).join('') + `<div class="tot"><div><small>合計</small><b>${t.sets}組・${t.p}点</b></div><div><small>使ったpt</small><b>${fmt(t.c)}pt</b></div><div><small>当たれば最大</small><b class="mx">${fmt(maxPay(v, sets, {}))}pt</b></div></div>`
+      ? sets.map(s => setCard(v, s, { del: true, pay: true, glow: glow.indexOf(s.set) >= 0 })).join('') + `<div class="tot"><div><small>合計</small><b>${t.sets}組・${t.p}点</b></div><div><small>使ったpt</small><b>${fmt(t.c)}pt</b></div><div><small>${sets.length > 1 ? '全部で最大' : backLbl(t.p)}</small><b class="mx">${fmt(maxPay(v, sets, {}))}pt</b></div></div>`
       : '<div class="note" style="margin:0">まだ買っていません</div>';
     return raceHead(v) + buyLed(v) + aiEntry(v) + oddsNote(v) +
       `<div class="tbl">${tableHead(DAYS)}${rows}</div>
@@ -394,7 +399,7 @@
     if (done) S.sel.火.forEach(a => S.sel.水.forEach(b => S.sel.木.forEach(c => { const m = oddsOf(v, a) * oddsOf(v, b) * oddsOf(v, c); lo = Math.min(lo, m); hi = Math.max(hi, m); })));
     q('dmo').innerHTML = done ? `<small>3連単</small><b>${oddsTxt(lo)}${hi > lo ? '〜' + oddsTxt(hi) : ''}</b><small>倍</small>` : '';
     const mx = done && bet && !er ? maxPay(v, [{ picks: S.sel, bet, points: n }], {}) : 0;
-    q('dret').innerHTML = done && bet && !er ? `${n}点 × ${fmt(bet)}pt ＝ <b>${fmt(n * bet)}</b> pt<br><span class="mx">当たれば最大 <b>${fmt(mx)}</b> pt</span>` : done ? '' : '火・水・木を1つ以上選んでください';
+    q('dret').innerHTML = done && bet && !er ? `${n}点 × ${fmt(bet)}pt ＝ <b>${fmt(n * bet)}</b> pt<br><span class="mx">${backLbl(n)} <b>${fmt(mx)}</b> pt</span>` : done ? '' : '火・水・木を1つ以上選んでください';
     q('derr').textContent = er;
     q('buy').textContent = done ? n + '点を買う' : '買う';
     q('buy').disabled = !(done && bet && !er);
@@ -449,7 +454,7 @@
       : fin ? '<div class="fxbox"></div>'
       : `<span class="al"><small>生き残り</small><b>${i.alive}点</b></span>${now ? `<small>獲得済み +${fmt(now)}</small>` : ''}`;
     const sign = x => (x < 0 ? '−' : '+') + fmt(Math.abs(x));
-    return `<div class="ledE${fin ? ' fin ' + i.st : ''}" role="status" aria-label="${fin ? (i.st === 'zero' ? '収支 ' : '獲得 ') + sign(amt) + 'pt' : '当たれば最大 ' + fmt(amt) + 'pt'}"><div class="cells">${cells}</div><div class="mid">${mid}</div><div class="amt"><small>${i.st === 'zero' ? '収支' : fin ? '獲得' : '当たれば最大'}</small><b data-v="${amt}" class="${i.st === 'zero' ? 'neg' : ''}">${sign(amt)}</b></div></div>`;
+    return `<div class="ledE${fin ? ' fin ' + i.st : ''}" role="status" aria-label="${fin ? (i.st === 'zero' ? '収支 ' : '獲得 ') + sign(amt) + 'pt' : (i.sets.length > 1 ? '全部で最大 ' : backLbl(i.t.p) + ' ') + fmt(amt) + 'pt'}"><div class="cells">${cells}</div><div class="mid">${mid}</div><div class="amt"><small>${i.st === 'zero' ? '収支' : fin ? '獲得' : i.sets.length > 1 ? '全部で最大' : backLbl(i.t.p)}</small><b data-v="${amt}" class="${i.st === 'zero' ? 'neg' : ''}">${sign(amt)}</b></div></div>`;
   }
   function closedView(v) {
     const i = closedStage(v), res = v.results;
@@ -466,7 +471,7 @@
       }).join('');
       return `<div class="tr">${waku(m.waku)}${nameCell(m, DAYS.some(d => mine(d, m.waku)))}${oddsCell(m)}${cells}</div>`;
     }).join('');
-    const list = i.sets.length ? `<div class="list"><div class="list-h"><span>あなたの買い目</span></div>${i.sets.map(s => setCard(v, s, { res: i.res })).join('')}</div>` : '';
+    const list = i.sets.length ? `<div class="list"><div class="list-h"><span>あなたの買い目</span></div>${i.sets.map(s => setCard(v, s, { res: i.res, pay: true })).join('')}</div>` : '';
     const board = closedBottom(v, i);
     return raceHead(v) + closedTop(v, i) +
       `<div class="legend"><span><span class="mk wait"></span>予想</span><span><span class="mk hit">✓</span>当たり</span><span><span class="mk miss">${MISS_X}</span>はずれ</span><span><span class="bowl" style="width:20px;height:20px">${BOWL('#C8102E')}</span>食べたもの</span>${cancelled.length ? '<span><span class="mk cancel">−</span>中止</span>' : ''}</div>` +
@@ -866,6 +871,7 @@
     if (t === 'pay') return `<div><b>日替わりpt</b>　当たった日ごとに、1点につき<br><b style="color:var(--turf)">1点あたりのpt × 1/3 × その品のオッズ</b><br>${sub('端数は切り捨て。その品を含む点の数だけもらえます')}</div>
       <div><b>3連単</b>　3日とも当たった1点に、さらに<br><b style="color:var(--red)">1点あたりのpt × 3品のオッズのかけ算</b></div>
       <div class="ptbox">${sub('例：1点1,000ptで、1・2・3番人気（2.0・3.0・4.5倍）を3日とも当てると')}<br>666＋1,000＋1,500＋27,000 ＝ <b style="font-size:14px">30,166pt</b><br>${sub('火曜だけ当たったら <b style="color:var(--ink)">666pt</b>（収支 −334pt）')}</div>
+      <div><b>当たれば最大</b>　${sub('買い目ごとに、その組が当たったときに戻るptの最大です（1点の組は「当たれば」）。「全部で最大」は、何組も買ったときに、結果がいちばん良かったときの合計です。各曜日に出る料理は1つなので、組ごとの数を足した数より少なくなることがあります。')}</div>
       <div><b>倍率</b>　${sub('ホストが並べた順の基本の倍率（下の表）を、みんなが使ったptで補正したものです。ptが多く集まった品は下がり、少ない品は上がります（基本の0.6〜1.6倍の範囲）。「○番人気」は今の倍率の低い順で、<b style="color:var(--ink)">締切の時点の倍率</b>で確定します。')}</div>
       <div class="oddsg">${o.slice(0, 8).map((x, i) => `<span>${i + 1}番目 <b>${Number.isInteger(x) && x >= 10 ? x : oddsTxt(x)}</b></span>`).join('')}</div>`;
     if (t === 'ai') return `<p style="margin:0">${sub('出馬表・いまの倍率・これまでの結果・食事の記録から、今週の3連単を統計で読みます。外れても恨みっこなし。')}</p>
@@ -1043,7 +1049,7 @@
       return `<div class="lyA${glow.indexOf(i) >= 0 ? ' just' : ''}"><div class="hd">${ck}<span class="m"><i>3連単</i><b>${oddsTxt(mul(k) || b.mul)}</b>倍</span>${dots(b.dots)}</div><div class="gd">${days}</div>${got.length ? `<span class="ai-got">買った ${got.map(x => fmt(x) + 'pt').join('・')}</span>` : ''}${am}</div>`;
     }).join('');
     const box = can ? `<div class="bxCtl"><button class="ai-all" data-all="1">${st.sel.every(Boolean) ? '選ぶのをやめる' : '全部選ぶ'}</button><span class="bt"><small>1点あたりまとめて</small><span class="bx"><input data-bet="1" inputmode="numeric" value="${esc(st.bet)}">pt</span></span></div>
-      ${sel.length ? `<div class="bxMx">当たれば最大 <b>${fmt(v ? maxPay(v, sel.map(i => { const k = res.buys[i].picks; return { picks: { 火: [k[0]], 水: [k[1]], 木: [k[2]] }, bet: amt(i), points: 1 }; }), {}) : 0)}</b>pt</div>` : ''}
+      ${sel.length > 1 ? `<div class="bxMx">全部で最大 <b>${fmt(v ? maxPay(v, sel.map(i => { const k = res.buys[i].picks; return { picks: { 火: [k[0]], 水: [k[1]], 木: [k[2]] }, bet: amt(i), points: 1 }; }), {}) : 0)}</b>pt</div>` : ''}
       <div class="bxZ"><div><small>選んだ目</small><b>${sel.length}点</b></div><div><small>合計</small><b>${fmt(tot)}<span>pt</span></b></div><button class="btn gold" data-buy="1" ${ok ? '' : 'disabled'}>${sel.length ? sel.length + '点を買う' : '目を選ぶ'}</button></div>` : '';
     return `<div class="aihX"><span class="h">買い目（3連単）</span></div><div class="ai-bys" data-key="${key}">${rows}${box}</div>`;
   }
@@ -1090,7 +1096,7 @@
     const open = !v.closed && S.ai.info.askOpen;
     return `<div class="ai-prop" data-pi="${i}"><div class="ai-prop-h">${aiMark(false, 14)}<b>提案の買い目</b><span>${t.n}点</span></div>
       ${DAYS.map(d => `<div class="ai-prop-r"><span class="d">${d}</span><span class="ns">${x.prop.picks[d].map(w => `<span class="n"><i>${w}</i>${esc(nm(w))}</span>`).join('')}</span></div>`).join('')}
-      ${x.bought ? `<div class="ai-prop-done">買いました（${fmt(x.boughtPt)}pt）</div>` : open ? `<div class="ai-prop-f"><label>1点 <input data-pbet="${i}" inputmode="numeric" value="${esc(x.pbet || '100')}" aria-label="1点あたりのpt"> pt</label><span class="tt">合計 <b>${fmt(t.cost)}</b>pt・当たれば最大 <b>${fmt(t.max)}</b>pt</span></div>
+      ${x.bought ? `<div class="ai-prop-done">買いました（${fmt(x.boughtPt)}pt）</div>` : open ? `<div class="ai-prop-f"><label>1点 <input data-pbet="${i}" inputmode="numeric" value="${esc(x.pbet || '100')}" aria-label="1点あたりのpt"> pt</label><span class="tt">合計 <b>${fmt(t.cost)}</b>pt・${backLbl(t.n)} <b>${fmt(t.max)}</b>pt</span></div>
       <button class="ai-prop-buy" data-pbuy="${i}" ${t.bet < 100 || t.bet % 100 || t.cost > S.data.me.balance ? 'disabled' : ''}>この目を買う（${fmt(t.cost)}pt）</button>` : ''}</div>`;
   }
   // 考える時間：質問と答えの長さで変える（決まった文でも少し考えてから出す）
@@ -1195,7 +1201,7 @@
     $app.querySelectorAll('[data-pbet]').forEach(el => el.oninput = () => {
       const x = (A.info.convo || [])[+el.dataset.pbet]; if (!x) return; x.pbet = el.value.replace(/\D/g, '');
       const t = aiPropTot(x), card = el.closest('.ai-prop'), b = card.querySelector('[data-pbuy]');
-      card.querySelector('.tt').innerHTML = `合計 <b>${fmt(t.cost)}</b>pt・当たれば最大 <b>${fmt(t.max)}</b>pt`;
+      card.querySelector('.tt').innerHTML = `合計 <b>${fmt(t.cost)}</b>pt・${backLbl(t.n)} <b>${fmt(t.max)}</b>pt`;
       if (b) { b.disabled = t.bet < 100 || t.bet % 100 || t.cost > S.data.me.balance; b.textContent = `この目を買う（${fmt(t.cost)}pt）`; }
     });
     $app.querySelectorAll('[data-pbuy]').forEach(b => b.onclick = async () => {
