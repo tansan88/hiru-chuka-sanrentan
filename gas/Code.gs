@@ -1181,7 +1181,7 @@ function aiLLM_(sys, user) {
 }
 // AIの答えを画面に出せる形にする（OFF・危ない言葉は定型文に、数字が合わなければ使わない）
 function aiFilter_(raw, D) {
-  const t = String(raw || '').replace(/<think>[\s\S]*?<\/think>/g, '').replace(/[*#`]/g, '').replace(/\n{2,}/g, '\n').trim().slice(0, 300);
+  const t = String(raw || '').replace(/<think>[\s\S]*?<\/think>/g, '').replace(/[*#`]/g, '').replace(/\n{2,}/g, '\n').trim().slice(0, 420).replace(/([。！？])[^。！？]*$/, (m, p) => m.length > 1 && m.length < 420 ? p : m);
   if (/^OFF\b/i.test(t) || /OFF/.test(t) && t.length < 10 || aiBadQ_(aiNorm_(t))) return { off: true, text: '昼中華の予想のことなら答えられます。たとえば「水曜は何が来そう？」と聞いてみてください' };
   if (!t || !aiCheckNums_(t, D) || !aiCheckRank_(t, D)) return null;
   return { off: false, text: t };
