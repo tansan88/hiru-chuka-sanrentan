@@ -1188,16 +1188,18 @@
     const freeTxt = I.freeUntil ? (() => { const [, mo, d] = I.freeUntil.split('-').map(Number); return `${mo}/${d}まで`; })() : '';
     const canSend = I.canBuy && !A.pend && (bought || price <= S.data.me.balance);
     const sc0 = $app.querySelector('.ai-scroll'), top0 = sc0 ? sc0.scrollTop : 0;
-    $app.innerHTML = `<div class="ai-screen"><header class="bar"><div style="display:flex;align-items:center;gap:10px"><button class="ibtn" id="back" aria-label="戻る" style="font-size:22px;padding-bottom:3px">‹</button><b class="sub-title">AI予想</b></div><span class="pts">持ち点<br><b>${fmt(S.data.me.balance)}</b> pt</span></header>
-      ${cur && !cur.closed && !cur.isMyHostWeek ? buyLed(cur) : ''}
+    $app.innerHTML = `<div class="ai-screen"><div class="ai-top"><header class="bar"><div style="display:flex;align-items:center;gap:10px"><button class="ibtn" id="back" aria-label="戻る" style="font-size:22px;padding-bottom:3px">‹</button><b class="sub-title">AI予想</b></div><span class="pts">持ち点<br><b>${fmt(S.data.me.balance)}</b> pt</span></header>
+      ${cur && !cur.closed && !cur.isMyHostWeek ? buyLed(cur) : ''}</div>
       <div class="ai-scroll">${freeTxt && I.canBuy ? `<div class="ai-free"><b>期間限定で無料</b><span>${freeTxt}</span></div>` : ''}
       <div class="ai-list">${items}${A.pend ? aiPending(A.pend) : ''}${aiThread()}</div></div>
+      <button class="ai-down" id="aiDown" aria-label="いちばん下へ" hidden><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3.5 8.5L8 13l4.5-4.5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <div class="ai-dock">${bought && I.askOpen ? aiAskBox(bought) : I.canBuy ? `<div class="ai-comp">
         <div class="ai-prompt">今週の3連単を予想して</div>
-        <div class="ai-row"><button class="ai-pill" id="aiPick" aria-haspopup="dialog">${esc(aiName(A.model))}<span>エフォート ${esc(aiEff(A.effort))}</span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button>
+        <div class="ai-row"><button class="ai-pill" id="aiPick" aria-haspopup="dialog" aria-label="メニュー">${aiMark(false, 16)}${esc(aiName(A.model))}<span>エフォート ${esc(aiEff(A.effort))}</span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button>
         <button class="ai-send" id="aiSend" ${canSend ? '' : 'disabled'} aria-label="${bought ? '買った予想を見る' : esc(sendLbl) + 'で予想してもらう'}"><span>${esc(sendLbl)}</span><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
         ${!bought && price > S.data.me.balance ? '<div class="ai-err">持ち点が足りません。モデルかエフォートを下げてください</div>' : ''}</div>` : `<div class="ai-closed">${esc(I.reason || 'いまはAI予想を買えません')}</div>`}</div></div>`;
     const sc = $app.querySelector('.ai-scroll'); if (sc) sc.scrollTop = top0;
+    aiFrame();
     const qi = document.getElementById('aiQ');
     if (qi) {
       aiGrow(qi);
@@ -1223,8 +1225,23 @@
     return `<div class="ai-comp">${ex}
       ${u.pct >= 80 ? `<div class="ai-near">${full ? '今週の質問はここまでです（月曜にリセット）' : '今週の使用量が残りわずかです'}</div>` : ''}
       <textarea id="aiQ" rows="1" maxlength="120" enterkeyhint="enter" placeholder="${full ? '今週の質問はここまでです' : '質問する（例：水曜は何が来そう？）'}" ${full ? 'disabled' : ''} aria-label="AIに質問する">${esc(A.draft || '')}</textarea>
-      <div class="ai-row"><button class="ai-pill" id="aiPick" aria-haspopup="dialog">${esc(aiName(A.model))}<span>エフォート ${esc(aiEff(A.effort))}</span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button>
+      <div class="ai-row"><button class="ai-pill" id="aiPick" aria-haspopup="dialog" aria-label="メニュー">${aiMark(false, 16)}${esc(aiName(A.model))}<span>エフォート ${esc(aiEff(A.effort))}</span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></button>
       <button class="ai-go" id="aiAsk" aria-label="送る"></button></div></div>`;
+  }
+  // 本家のように：上のバー・電光と下の入力欄は会話の上に重ねて半透明にし、会話はその下まで流れる
+  // ・上下の高さに合わせて会話の余白をとる ・下から離れたら「いちばん下へ」のボタン ・会話を指で動かしたらキーボードをしまう
+  let aiRO = null;
+  function aiFrame() {
+    const scr = $app.querySelector('.ai-screen'), sc = $app.querySelector('.ai-scroll'), top = $app.querySelector('.ai-top'), dock = $app.querySelector('.ai-dock'), down = document.getElementById('aiDown');
+    if (!scr || !sc) return;
+    const fit = () => { scr.style.setProperty('--topH', top.offsetHeight + 'px'); scr.style.setProperty('--dockH', dock.offsetHeight + 'px'); };
+    fit(); if (aiRO) aiRO.disconnect(); if (window.ResizeObserver) { aiRO = new ResizeObserver(fit); aiRO.observe(top); aiRO.observe(dock); }
+    const chk = () => { if (down) down.hidden = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 160; };
+    sc.addEventListener('scroll', chk, { passive: true }); chk();
+    if (down) down.onclick = () => sc.scrollTo({ top: sc.scrollHeight, behavior: 'smooth' });
+    let y0 = null;
+    sc.addEventListener('touchstart', e => { y0 = e.touches[0].clientY; }, { passive: true });
+    sc.addEventListener('touchmove', e => { const a = document.activeElement; if (y0 != null && a && (a.id === 'aiQ' || a.id === 'aiE') && Math.abs(e.touches[0].clientY - y0) > 24) { a.blur(); y0 = null; } }, { passive: true });
   }
   // スマホでキーボードが出ても、上のバーと入力欄が動かないように、画面の高さを見えている高さに合わせる
   let aiVV = false;
@@ -1251,8 +1268,8 @@
       box.querySelectorAll('[data-e]').forEach(b => b.onclick = () => { e = b.dataset.e; draw(); });
       document.getElementById('aiOk').onclick = () => { A.model = m; A.effort = e; store.set('ai_model', m); store.set('ai_effort', e); closeLayer(); renderAI(); };
     };
-    openLayer(`<div class="scrim" data-close></div><div class="sheet" role="dialog" aria-label="モデルとエフォート"><div class="grab"><span></span></div>
-      <div class="sh"><h2>モデルとエフォート</h2><button class="xbtn" data-close aria-label="閉じる">✕</button></div><div class="ai-pk"></div></div>`);
+    openLayer(`<div class="scrim" data-close></div><div class="sheet" role="dialog" aria-label="メニュー"><div class="grab"><span></span></div>
+      <div class="sh"><h2>メニュー</h2><button class="xbtn" data-close aria-label="閉じる">✕</button></div><div class="ai-pk"></div></div>`);
     draw();
   }
   async function aiSend() {

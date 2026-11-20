@@ -239,7 +239,8 @@ const API = {
     if (!w || !item) return { text: '' };
     // 直前の会話（消した・止めたものは除く。最大10往復）を添える。ニックネームは送らない
     const hist = aiConvo_(P.week, u.id).filter(c => c.row < P.row && !c.st && c.a).slice(-10).map(c => ({ q: c.q, a: c.a }));
-    const D = aiAskData_(db, w, u, item), pr = aiPrompt_(P.q, D, hist);
+    const D = aiAskData_(db, w, u, item); D.memo = aiMemo_(db, u, w);
+    const pr = aiPrompt_(P.q, D, hist);
     const x = aiLLM_(pr.sys, pr.msgs);
     if (!x) return { text: '' };
     const f = aiFilter_(x.text, D);
@@ -1207,6 +1208,29 @@ function aiCheckNums_(text, D) {
   return nums.every(n => ok[Number(n).toFixed(1)]);
 }
 // AIへの指示とデータ。ゲームの説明・言葉の意味・モデルでできること・今週の数字を渡し、直前の会話も添える
+// その人の覚え書き：これまでの買い方・成績・前の週にAIに聞いたこと（シートのデータから毎回つくる。ニックネームは入れない）
+function aiMemo_(db, u, w) {
+  const past = db.weeks.filter(x => x.状態 === '確定' && String(x.週ID) < String(w.週ID)).map(x => x.週ID);
+  const out = [];
+  const mine = db.preds.filter(p => p.参加者ID === u.id && past.indexOf(p.週ID) >= 0);
+  if (mine.length) {
+    const cnt = {}, pops = [];
+    mine.forEach(p => { const st = predSet_(p), mn = db.menus.filter(m => m.週ID === p.週ID);
+      DAYS.forEach(d => st.picks[d].forEach(k => { const m = mn.find(x => Number(x.枠) === k); if (!m) return; cnt[m.品名] = (cnt[m.品名] || 0) + 1; pops.push(Number(m.人気) || 0); })); });
+    const wk = uniq_(mine.map(p => p.週ID)).length, fav = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a]).slice(0, 3);
+    const ap = pops.length ? pops.reduce((a, b) => a + b, 0) / pops.length : 0;
+    out.push('これまで' + wk + '週参加。よく選ぶ品：' + fav.join('・') + '。選ぶ品の平均は' + ap.toFixed(1) + '番人気（' + (ap <= 2.5 ? '人気の品を選びがち' : ap >= 4 ? '穴を狙いがち' : '人気と穴の中間') + '）');
+    const ea = db.earn.filter(e => e.参加者ID === u.id && past.indexOf(e.週ID) >= 0);
+    const tri = ea.filter(e => Number(e['3連単']) > 0).length, days = ea.reduce((a, e) => a + DAYS.filter(d => Number(e[d]) > 0).length, 0);
+    out.push('成績：3連単の的中' + tri + '回・日替わりの当たり' + days + '日・収支' + ea.reduce((a, e) => a + Number(e.収支 || 0), 0) + 'pt');
+    const lw = past.slice().sort().pop(), lp = mine.filter(p => p.週ID === lw);
+    if (lp.length) { const mn = db.menus.filter(m => m.週ID === lw), nm = k => (mn.find(x => Number(x.枠) === k) || {}).品名 || '';
+      out.push('先週の買い方：' + lp.slice(0, 3).map(p => { const st = predSet_(p); return DAYS.map(d => st.picks[d].map(nm).join('/')).join('→'); }).join('、') + (lp.length > 3 ? ' ほか' : '')); }
+  }
+  const qs = rowsAuto_('AI会話').filter(x => x.参加者ID === u.id && x.週ID !== w.週ID && !/^(cut|stop)/.test(String(x.種類))).slice(-8).map(x => String(x.質問).slice(0, 40));
+  if (qs.length) out.push('前の週にAIに聞いたこと：' + qs.join('／'));
+  return out.join('\n');
+}
 function aiPrompt_(q, D, hist) {
   const lv = D.lv, M = AI_MODELS[lv] || AI_MODELS[0], E = AI_EFFORTS.find(e => e.id === D.eid) || AI_EFFORTS[0];
   const P = (d, m) => Math.round((D.probs[d][m.waku] || 0) * 10) / 10;
@@ -1231,7 +1255,7 @@ function aiPrompt_(q, D, hist) {
   const now = new Date(Date.now() + 9 * 3600e3), today = (now.getUTCMonth() + 1) + '/' + now.getUTCDate() + '（' + '日月火水木金土'[now.getUTCDay()] + '）';
   const data = ['【今日】' + today + '。予想する日は火・水・木', '【今週のデータ】', lines.join('\n'), buys ? '【このAIの買い目】\n' + buys : '', ana ? '【穴】' + ana.d + '曜の ' + ana.m.name + '（' + P(ana.d, ana.m).toFixed(1) + '%・' + ana.m.odds.toFixed(1) + '倍）' : '',
     lv >= 1 && hs ? '【これまでに出た回数（' + D.histDays + '日中）】' + hs : '', lv >= 1 && D.monday ? '【担当ホストが月曜に食べたもの】' + D.monday : '', lv >= 2 && D.hostFav ? '【担当ホストがこれまでにいちばん多く食べたもの】' + D.hostFav.name + '（' + D.hostFav.n + '回）' : '',
-    D.last ? '【先週】' + D.last : '', D.mine ? '【ユーザーの今週の買い方】' + D.mine : '【ユーザーの今週の買い方】まだ買っていない'].filter(Boolean).join('\n');
+    D.last ? '【先週】' + D.last : '', D.memo ? '【このユーザーについて（話に関係するときだけ自然に使う。読み上げない）】\n' + D.memo : '', D.mine ? '【ユーザーの今週の買い方】' + D.mine : '【ユーザーの今週の買い方】まだ買っていない'].filter(Boolean).join('\n');
   const msgs = [];
   (hist || []).forEach(h => { msgs.push({ role: 'user', content: h.q }); msgs.push({ role: 'assistant', content: h.a }); });
   msgs.push({ role: 'user', content: q });
@@ -2109,7 +2133,7 @@ const GEMINI_BASE_ = 'https://generativelanguage.googleapis.com/v1beta/';
 function geminiKey_() { return PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || ''; }
 function geminiCheck_() {
   const cache = CacheService.getScriptCache();
-  const hit = cache.get('geminiCheck6');
+  const hit = cache.get('geminiCheck7');
   if (hit) return Object.assign(JSON.parse(hit), { cached: true });
   const gk = PropertiesService.getScriptProperties().getProperty('GROQ_API_KEY') || '';
   const out = { ok: true, groqKeySet: !!gk, probe: [] };
@@ -2120,7 +2144,8 @@ function geminiCheck_() {
   DAYS.forEach(d => { probs[d] = {}; names.forEach((n, i) => probs[d][i + 1] = pv[i]); });
   const D = { bought: { opus: 1 }, deadline: '11/24（火）11:00', last: '', mine: '', lv: 2, cur: names.map((n, i) => ({ waku: i + 1, name: n, pop: i + 1, odds: odds[i] })), probs, buys: [], hist: { 天津飯: { n: 6 }, 麻婆豆腐: { n: 9 } }, histDays: 18, monday: '麻婆豆腐', hostFav: { name: '麻婆豆腐', n: 9 } };
   // ユーザーが試した流れをそのまま、直前の会話を添えて通す
-  const Q = ['Octopusはどのご飯が美味しいと思う？', '1番的中しそうで、最も配当ptが高い目はどれ？', '今日の戦略を教えて', '他に注目すべき点は？\n予想外な展開にはどう対応する？', '大穴はどれで、大荒れの展開を予想してみて', 'もし天津飯が火曜に来なかったら？', 'じゃあ保険をかけるならどう買う？', 'ありがとう、参考になった'];
+  const Q = ['私の買い方の傾向ってどう？', '先週の私の買い方はどうだった？', 'じゃあ今週はどう変えるといい？', '前に何を聞いたか覚えてる？'];
+  D.memo = 'これまで5週参加。よく選ぶ品：麻婆豆腐・天津飯・回鍋肉。選ぶ品の平均は1.8番人気（人気の品を選びがち）\n成績：3連単の的中0回・日替わりの当たり6日・収支-1200pt\n先週の買い方：麻婆豆腐→天津飯→麻婆豆腐\n前の週にAIに聞いたこと：穴は？／保険をかけるならどう買う？'
   D.eid = 'high'; D.buys = [{ names: ['麻婆豆腐', '天津飯', '麻婆豆腐'], p: 6.2, mul: 28.1 }]; D.deadline = '11/24（火）11:00';
   const hist = [];
   Q.forEach(q => {
@@ -2136,6 +2161,6 @@ function geminiCheck_() {
       out.probe.push({ q, by: x ? x.by : 'なし', ms: Date.now() - t0, how: f ? (f.off ? 'OFF' : 'AI') : '決まった答え', a: shown.slice(0, 160), raw: f ? '' : raw.replace(/<think>[\s\S]*?<\/think>/g, '').slice(0, 100) });
     } catch (e) { out.probe.push({ q, error: String(e).slice(0, 120) }); }
   });
-  cache.put('geminiCheck6', JSON.stringify(out), 60);
+  cache.put('geminiCheck7', JSON.stringify(out), 60);
   return out;
 }
