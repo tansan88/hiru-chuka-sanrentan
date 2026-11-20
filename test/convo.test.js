@@ -131,10 +131,11 @@ try {
   G.PropertiesService.getScriptProperties().setProperty('GEMINI_API_KEY', 'test');
   let calls = 0;
   G.UrlFetchApp.fetch = (url, o) => { calls++; const b = JSON.parse(o.payload); sent = b;
+    if (/groq/.test(url) && /compound/.test(b.model)) return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ choices: [{ message: { content: 'フォーメーションは軸を決めて相手を広げる買い方です[1]。', executed_tools: [{ search_results: { results: [{ title: 'example.com', url: 'https://example.com/a' }] } }] } }], usage: { total_tokens: 900 } }) };
     if (/groq/.test(url)) return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ choices: [{ message: { content: reply } }], usage: { total_tokens: 900 } }) };
     return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text: 'フォーメーションは軸を決めて相手を広げる買い方です。' }] }, groundingMetadata: { groundingChunks: [{ web: { uri: 'https://example.com/a', title: 'example.com' } }] } }] }) }; };
   x = AI('フォーメーションの買い方のコツをネット検索して', '[[検索 フォーメーション 買い方 コツ]]');
-  ok(/軸を決めて/.test(x.p.text) && x.p.refs && x.p.refs[0].u === 'https://example.com/a' && sent.tools && sent.tools[0].google_search, '検索して参照を付ける', x.p);
+  ok(/軸を決めて/.test(x.p.text) && x.p.refs && x.p.refs[0].u === 'https://example.com/a' && /compound/.test(sent.model), '検索して参照を付ける（Groqの検索つきAI）', x.p);
   LL = call('aiList', { token: g }).convo.pop();
   ok(LL.refs && LL.refs.length === 1 && !/\[\[/.test(LL.a), '参照は開き直しても残る', LL);
   x = AI('明日の東京の天気をネットで検索して', 'OFF');
