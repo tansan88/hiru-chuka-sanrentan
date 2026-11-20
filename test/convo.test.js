@@ -126,7 +126,17 @@ try {
   x = AI('次の質問', 'わかりました。');
   ok(sent.messages.some(m => m.role === 'assistant' && /提案した買い目：火 麻婆豆腐/.test(m.content)), '提案した買い目は品名でAIに覚えさせる');
   x = AI('買っておいて', '提案です。\n[[買い目 火:北京ダック 水:天津飯 木:麻婆豆腐]]');
-  ok(!x.p.prop && x.p.text === '提案です。', '出馬表にない品の提案は出さない', x.p);
+  ok(x.p.prop && x.p.prop.picks.火.indexOf(0) < 0 && /下のボタンから買えます/.test(x.p.text), '出馬表にない品の提案は使わず、AIの買い目の1番を出す', x.p);
+  x = AI('おすすめある？', '提案です。\n[[買い目 火:北京ダック 水:天津飯 木:麻婆豆腐]]');
+  ok(!x.p.prop && x.p.text === '提案です。', '買う依頼でなければ、出馬表にない品の提案は出さない', x.p);
+  // 「買っといて」の依頼は、提案のカードと「下のボタンから買えます」にそろえる。印がなければAIの買い目の1番。勝手に買ったような言い方は消す
+  x = AI('いいね、その目買っといて', '了解です。以下の買い目を登録します。麻婆豆腐を軸にした組です。');
+  ok(x.p.prop && x.p.prop.picks.火.length === 1 && /下のボタンから買えます。$/.test(x.p.text) && !/登録します/.test(x.p.text), '買っといての依頼はカードと一言にそろえる', x.p);
+  // 考え中に止めて質問を戻す：その質問は会話から消える
+  reply = 'まだ届かない';
+  const bk = call('aiAsk', { token: g, weekId: wk, model: 'opus', effort: 'mid', q: '戻す質問' });
+  call('aiStop', { token: g, row: bk.row, id: bk.pend, back: 1 });
+  ok(!call('aiList', { token: g }).convo.some(c => c.q === '戻す質問'), '考え中に止めて戻した質問は会話から消える');
   // 検索のスキル：検索を頼まれたら Gemini の検索で答え、参照を付ける。関係ない検索はかわす
   G.PropertiesService.getScriptProperties().setProperty('GEMINI_API_KEY', 'test');
   let calls = 0;

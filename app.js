@@ -1073,7 +1073,7 @@
     return `<div class="ai-prop" data-pi="${i}"><div class="ai-prop-h">${aiMark(false, 14)}<b>提案の買い目</b><span>${t.n}点</span></div>
       ${DAYS.map(d => `<div class="ai-prop-r"><span class="d">${d}</span><span class="ns">${x.prop.picks[d].map(w => `<span class="n"><i>${w}</i>${esc(nm(w))}</span>`).join('')}</span></div>`).join('')}
       ${x.bought ? `<div class="ai-prop-done">買いました（${fmt(x.boughtPt)}pt）</div>` : open ? `<div class="ai-prop-f"><label>1点 <input data-pbet="${i}" inputmode="numeric" value="${esc(x.pbet || '100')}" aria-label="1点あたりのpt"> pt</label><span class="tt">合計 <b>${fmt(t.cost)}</b>pt・当たれば最大 <b>${fmt(t.max)}</b>pt</span></div>
-      <button class="ai-prop-buy" data-pbuy="${i}" ${t.bet < 100 || t.bet % 100 || t.cost > S.data.me.balance ? 'disabled' : ''}>この目を買う</button>` : ''}</div>`;
+      <button class="ai-prop-buy" data-pbuy="${i}" ${t.bet < 100 || t.bet % 100 || t.cost > S.data.me.balance ? 'disabled' : ''}>この目を買う（${fmt(t.cost)}pt）</button>` : ''}</div>`;
   }
   // 考える時間：質問と答えの長さで変える（決まった文でも少し考えてから出す）
   const aiThinkMs = (q, a) => Math.min(3200, Math.max(900, 600 + q.length * 22 + String(a || '').length * 14 + Math.random() * 500));
@@ -1102,7 +1102,7 @@
       row.row = r.row; row.pendId = r.pend || null;
       if (r.ctx) A.ctx[key] = r.ctx; if (r.usage) I.usage = r.usage;
       if (r.kind === 'closed') I.askOpen = false;
-      if (row.stop) { if (r.row) api('aiStop', { row: r.row, id: r.pend || '' }, { loading: false, quiet: true }).catch(() => {}); return; }
+      if (row.stop) { if (r.row) api('aiStop', { row: r.row, id: r.pend || '', back: row.back ? 1 : 0 }, { loading: false, quiet: true }).catch(() => {}); return; }
       if (!r.pend) { await wait(r.text); show(r.text, r.choices); return; }
       const p = await Promise.race([api('aiPhrase', { id: r.pend }, { loading: false, quiet: true }).catch(() => null), aiSleep(/検索|調べ|ググ|ネット/.test(q) ? 40000 : 15000).then(() => null)]);
       if (row.stop) return;
@@ -1134,9 +1134,12 @@
   function aiStopNow() {
     const A = S.ai, row = A.cur; if (!row) return;
     if (row.typing) { row.a = row.a.slice(0, row.typed || 0); row.typing = false; row.cut = true; A.asking = false; A.cur = null; aiRefresh(); return; }
-    row.stop = true; row.think = false; A.asking = false; A.cur = null;
-    if (row.row) api('aiStop', { row: row.row, id: row.pendId || '' }, { loading: false, quiet: true }).catch(() => {});
-    aiRefresh();
+    // 考え中に止めたら、本家と同じく質問を会話から外して入力欄に戻す（直して送り直せる）
+    row.stop = true; row.back = true; row.think = false; A.asking = false; A.cur = null;
+    if (row.row) api('aiStop', { row: row.row, id: row.pendId || '', back: 1 }, { loading: false, quiet: true }).catch(() => {});
+    const k = (A.info.convo || []).indexOf(row); if (k >= 0) A.info.convo.splice(k, 1);
+    A.draft = row.q; aiRefresh();
+    const t = document.getElementById('aiQ'); if (t) { t.value = row.q; aiGrow(t); aiSendBtn(); t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
   }
   // 会話・使用量・送るボタンだけを描き直す（入力中の文字やキーボードを消さない）
   function aiRefresh() {
@@ -1168,7 +1171,7 @@
       const x = (A.info.convo || [])[+el.dataset.pbet]; if (!x) return; x.pbet = el.value.replace(/\D/g, '');
       const t = aiPropTot(x), card = el.closest('.ai-prop'), b = card.querySelector('[data-pbuy]');
       card.querySelector('.tt').innerHTML = `合計 <b>${fmt(t.cost)}</b>pt・当たれば最大 <b>${fmt(t.max)}</b>pt`;
-      if (b) b.disabled = t.bet < 100 || t.bet % 100 || t.cost > S.data.me.balance;
+      if (b) { b.disabled = t.bet < 100 || t.bet % 100 || t.cost > S.data.me.balance; b.textContent = `この目を買う（${fmt(t.cost)}pt）`; }
     });
     $app.querySelectorAll('[data-pbuy]').forEach(b => b.onclick = async () => {
       const x = (A.info.convo || [])[+b.dataset.pbuy]; if (!x) return; b.disabled = true;
