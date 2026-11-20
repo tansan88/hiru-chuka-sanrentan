@@ -1213,6 +1213,7 @@ function aiSplit_(a) {
   return { a: a.replace(/\n?\[\[参照 .*\]\]/g, '').replace(/\n?\[\[買い目 [^\]]*\]\]/g, '').trim(), prop, refs };
 }
 // ネット検索（スキル）：Gemini の Google 検索つきで、予想に役立つ一般知識だけ調べる。参照元も返す
+let AI_SEARCH_LOG_ = [];
 function aiSearch_(query, q) {
   const props = PropertiesService.getScriptProperties(), key = props.getProperty('GEMINI_API_KEY');
   if (!key || String(getSetting_('AI会話でAIを使う')).trim() === 'いいえ') return null;
@@ -1220,14 +1221,14 @@ function aiSearch_(query, q) {
   if (cnt >= (Number(getSetting_('AI会話の検索（1日）')) || 50)) return null;
   props.setProperty('aiSearchDay', today + ':' + (cnt + 1));
   const sys = 'あなたは社内の昼ごはん予想ゲームの相談役です。検索結果をもとに、予想に役立つ一般的な考え方を日本語の「です・ます」で3〜5文にまとめてください。本物のお金を賭けることはすすめない。ゲームの今週の数字は知らないので使わない。';
-  for (const n of ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite']) {
+  for (const n of ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.5-flash', 'gemini-2.5-flash']) {
     try {
       const r = UrlFetchApp.fetch(GEMINI_BASE_ + 'models/' + n + ':generateContent', { method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': key }, muteHttpExceptions: true,
         payload: JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents: [{ role: 'user', parts: [{ text: '質問：' + q + '\n調べる言葉：' + query }] }], tools: [{ google_search: {} }], generationConfig: { maxOutputTokens: 600, temperature: 0.3 } }) });
-      if (r.getResponseCode() !== 200) continue;
+      if (r.getResponseCode() !== 200) { AI_SEARCH_LOG_.push(n + ' ' + r.getResponseCode() + ' ' + r.getContentText().slice(0, 200)); continue; }
       const b = JSON.parse(r.getContentText()), c = (b.candidates || [])[0] || {};
       const text = ((c.content || {}).parts || []).map(x => x.text || '').join('').trim();
-      if (!text) continue;
+      if (!text) { AI_SEARCH_LOG_.push(n + ' empty ' + JSON.stringify(b).slice(0, 200)); continue; }
       const seen = {}, refs = (((c.groundingMetadata || {}).groundingChunks) || []).map(x => x.web).filter(x => x && x.uri && !seen[x.title] && (seen[x.title] = 1)).slice(0, 4).map(x => ({ t: String(x.title || '').slice(0, 60), u: String(x.uri) }));
       return { text, refs, by: 'Gemini検索', tokens: (b.usageMetadata || {}).totalTokenCount || 0 };
     } catch (e) {}
@@ -2190,7 +2191,7 @@ const GEMINI_BASE_ = 'https://generativelanguage.googleapis.com/v1beta/';
 function geminiKey_() { return PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || ''; }
 function geminiCheck_() {
   const cache = CacheService.getScriptCache();
-  const hit = cache.get('geminiCheck9');
+  const hit = cache.get('geminiCheck10');
   if (hit) return Object.assign(JSON.parse(hit), { cached: true });
   const gk = PropertiesService.getScriptProperties().getProperty('GROQ_API_KEY') || '';
   const out = { ok: true, groqKeySet: !!gk, probe: [] };
@@ -2215,13 +2216,13 @@ function geminiCheck_() {
       const x = aiLLM_(pr.sys, pr.msgs), raw = x ? x.text : '';
       const sq = raw.replace(/<think>[\s\S]*?<\/think>/g, '').match(/\[\[検索\s*([^\]]+)\]\]/);
       let f, prop = null, refs = null, by = x ? x.by : 'なし';
-      if (sq) { const sr = aiSearch_(sq[1].trim(), q); f = sr ? { text: sr.text.slice(0, 300) } : { text: '（検索できなかった）' }; refs = sr && sr.refs; by += '→検索:' + sq[1]; }
+      if (sq) { const sr = aiSearch_(sq[1].trim(), q); f = sr ? { text: sr.text.slice(0, 300) } : { text: '（検索できなかった）' }; refs = sr && sr.refs; by += '→検索:' + sq[1]; if (!sr) out.searchLog = AI_SEARCH_LOG_.slice(); }
       else { prop = x ? aiPropOf_(raw, D) : null; f = x ? aiFilter_(raw.replace(/\[\[(買い目|検索)[^\]]*\]\]/g, ''), D, q) : null; }
       const shown = f ? f.text : loc.text;
       hist.push({ q, a: shown });
       out.probe.push({ q, by, ms: Date.now() - t0, how: f ? (f.off ? 'OFF' : 'AI') : '決まった答え', a: shown.slice(0, 300), prop: prop && prop.picks, refs, raw: f ? '' : raw.replace(/<think>[\s\S]*?<\/think>/g, '').slice(0, 100) });
     } catch (e) { out.probe.push({ q, error: String(e).slice(0, 120) }); }
   });
-  cache.put('geminiCheck9', JSON.stringify(out), 60);
+  cache.put('geminiCheck10', JSON.stringify(out), 60);
   return out;
 }
