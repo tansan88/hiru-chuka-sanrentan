@@ -1227,8 +1227,10 @@ function aiSearch_(query, q) {
     const api = 'https://ja.wikipedia.org/w/api.php?format=json&utf8=1&';
     // 調べる言葉から「コツ」「とは」などを外し、賭けの買い方の言葉なら「馬券」を足して、いくつかの言い方で探す
     const core = String(query).replace(/買い方|買い|のコツ|コツ|とは|競馬|って何|予想ゲーム|解説|方法|仕組み|やり方|[?？]/g, ' ').replace(/\s+/g, ' ').trim();
-    const key = (core.split(' ')[0] || core).trim();
-    const bet = /ボックス|フォーメーション|流し|3連単|三連単|連複|連単|オッズ|馬券|軸|ワイド|期待値|回収率/.test(core);
+    const BET = /ボックス|フォーメーション|流し|3連単|三連単|連複|連単|オッズ|馬券|軸|ワイド|期待値|回収率/, toks = core.split(' ').filter(Boolean);
+    // いちばん具体的な言葉を軸にする（「3連単 フォーメーション」ならフォーメーション）
+    const key = (toks.filter(t => BET.test(t)).sort((a, b) => b.length - a.length)[0] || toks[0] || core).trim();
+    const bet = BET.test(core);
     const tries = uniq_([bet ? key + ' 馬券' : '', core, key].filter(Boolean));
     let titles = [];
     for (const t of tries) {
