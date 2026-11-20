@@ -1104,7 +1104,7 @@
       if (r.kind === 'closed') I.askOpen = false;
       if (row.stop) { if (r.row) api('aiStop', { row: r.row, id: r.pend || '' }, { loading: false, quiet: true }).catch(() => {}); return; }
       if (!r.pend) { await wait(r.text); show(r.text, r.choices); return; }
-      const p = await Promise.race([api('aiPhrase', { id: r.pend }, { loading: false, quiet: true }).catch(() => null), aiSleep(15000).then(() => null)]);
+      const p = await Promise.race([api('aiPhrase', { id: r.pend }, { loading: false, quiet: true }).catch(() => null), aiSleep(/検索|調べ|ググ|ネット/.test(q) ? 40000 : 15000).then(() => null)]);
       if (row.stop) return;
       const ok = p && p.text; if (ok && p.usage) I.usage = p.usage;
       await wait(ok ? p.text : r.text);

@@ -1220,34 +1220,9 @@ function aiSearch_(query, q) {
   const today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd'), [d0, c0] = String(props.getProperty('aiSearchDay') || '').split(':'), cnt = d0 === today ? Number(c0) || 0 : 0;
   if (cnt >= (Number(getSetting_('AI会話の検索（1日）')) || 50)) return null;
   props.setProperty('aiSearchDay', today + ':' + (cnt + 1));
-  const sys = 'あなたは社内の昼ごはん予想ゲームの相談役です。検索結果をもとに、予想に役立つ一般的な考え方を日本語の「です・ます」で3〜5文にまとめてください。本物のお金を賭けることはすすめない。ゲームの今週の数字は知らないので使わない。';
-  // まず Groq の検索つきAI（無料枠）。だめなら Gemini の Google 検索（無料枠では使えないことがある）
-  for (const n of gk ? ['groq/compound-mini', 'groq/compound'] : []) {
-    try {
-      const r = UrlFetchApp.fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'post', contentType: 'application/json', headers: { Authorization: 'Bearer ' + gk }, muteHttpExceptions: true,
-        payload: JSON.stringify({ model: n, messages: [{ role: 'system', content: sys }, { role: 'user', content: '質問：' + q + '\n調べる言葉：' + query }], max_tokens: 700, temperature: 0.3 }) });
-      if (r.getResponseCode() !== 200) { AI_SEARCH_LOG_.push(n + ' ' + r.getResponseCode() + ' ' + r.getContentText().slice(0, 200)); continue; }
-      const b = JSON.parse(r.getContentText()), m = ((b.choices || [])[0] || {}).message || {};
-      const text = String(m.content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-      if (!text) { AI_SEARCH_LOG_.push(n + ' empty'); continue; }
-      const seen = {}, refs = [];
-      (m.executed_tools || []).forEach(t => (((t.search_results || {}).results) || []).forEach(x => { if (x && x.url && /^https:/.test(x.url) && !seen[x.url] && refs.length < 4) { seen[x.url] = 1; refs.push({ t: String(x.title || x.url).slice(0, 60), u: String(x.url) }); } }));
-      return { text: text.replace(/\[\d+\]/g, ''), refs, by: 'Groq検索', tokens: (b.usage || {}).total_tokens || 0 };
-    } catch (e) { AI_SEARCH_LOG_.push(n + ' ' + String(e).slice(0, 100)); }
-  }
-  for (const n of key ? ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'] : []) {
-    try {
-      const r = UrlFetchApp.fetch(GEMINI_BASE_ + 'models/' + n + ':generateContent', { method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': key }, muteHttpExceptions: true,
-        payload: JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents: [{ role: 'user', parts: [{ text: '質問：' + q + '\n調べる言葉：' + query }] }], tools: [{ google_search: {} }], generationConfig: { maxOutputTokens: 600, temperature: 0.3 } }) });
-      if (r.getResponseCode() !== 200) { AI_SEARCH_LOG_.push(n + ' ' + r.getResponseCode() + ' ' + r.getContentText().slice(0, 200)); continue; }
-      const b = JSON.parse(r.getContentText()), c = (b.candidates || [])[0] || {};
-      const text = ((c.content || {}).parts || []).map(x => x.text || '').join('').trim();
-      if (!text) { AI_SEARCH_LOG_.push(n + ' empty ' + JSON.stringify(b).slice(0, 200)); continue; }
-      const seen = {}, refs = (((c.groundingMetadata || {}).groundingChunks) || []).map(x => x.web).filter(x => x && x.uri && !seen[x.title] && (seen[x.title] = 1)).slice(0, 4).map(x => ({ t: String(x.title || '').slice(0, 60), u: String(x.uri) }));
-      return { text, refs, by: 'Gemini検索', tokens: (b.usageMetadata || {}).totalTokenCount || 0 };
-    } catch (e) {}
-  }
-  // 最後に Wikipedia（日本語版）を調べ、その抜き書きだけを使って答える（キー・請求なし）
+  const sys = 'あなたは社内の昼ごはん予想ゲームの相談役です。調べた内容をもとに、予想に役立つ一般的な考え方を日本語の「です・ます」で3〜5文にまとめてください。「抜き書き」「提示された」など資料の話はせず、ふつうに説明する。本物のお金を賭けることはすすめない（必要なときだけ一言）。ゲームの今週の数字は知らないので使わない。';
+  // Wikipedia（日本語版）を調べ、その抜き書きだけを使って答える（キー・請求なし）。
+  // ※ Gemini の Google 検索は無料枠では使えず（429）、Groq の検索つきAIもこのキーでは使えなかった（2026-11-20 確認）
   try {
     const api = 'https://ja.wikipedia.org/w/api.php?format=json&utf8=1&';
     // 調べる言葉から「コツ」「とは」などを外し、賭けの買い方の言葉なら「馬券」を足して、いくつかの言い方で探す
@@ -2231,7 +2206,7 @@ const GEMINI_BASE_ = 'https://generativelanguage.googleapis.com/v1beta/';
 function geminiKey_() { return PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || ''; }
 function geminiCheck_() {
   const cache = CacheService.getScriptCache();
-  const hit = cache.get('geminiCheck14');
+  const hit = cache.get('geminiCheck15');
   if (hit) return Object.assign(JSON.parse(hit), { cached: true });
   const gk = PropertiesService.getScriptProperties().getProperty('GROQ_API_KEY') || '';
   const out = { ok: true, groqKeySet: !!gk, probe: [] };
@@ -2264,6 +2239,6 @@ function geminiCheck_() {
       out.probe.push({ q, by, ms: Date.now() - t0, how: f ? (f.off ? 'OFF' : 'AI') : '決まった答え', a: shown.slice(0, 300), prop: prop && prop.picks, refs, raw: f ? '' : raw.replace(/<think>[\s\S]*?<\/think>/g, '').slice(0, 100) });
     } catch (e) { out.probe.push({ q, error: String(e).slice(0, 120) }); }
   });
-  cache.put('geminiCheck14', JSON.stringify(out), 60);
+  cache.put('geminiCheck15', JSON.stringify(out), 60);
   return out;
 }
