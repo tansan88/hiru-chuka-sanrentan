@@ -88,7 +88,8 @@ try {
   G.PropertiesService.getScriptProperties().setProperty('GROQ_API_KEY', 'test');
   let sent = null, reply = '';
   G.UrlFetchApp.fetch = (url, o) => { sent = JSON.parse(o.payload); return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ choices: [{ message: { content: reply } }], usage: { total_tokens: 900, completion_tokens: 40 } }) }; };
-  const AI = (q, rep, extra) => { reply = rep; const a = call('aiAsk', Object.assign({ token: g, weekId: wk, model: 'opus', effort: 'mid', q }, extra || {})); const p = a.pend ? call('aiPhrase', { token: g, id: a.pend }) : null; return { a, p }; };
+  const AI = (q, rep, extra) => { reply = rep; G.CacheService.getScriptCache().remove('aiMin' + Math.floor(Date.now() / 60000)); // 1分の上限はテストでは外す
+    const a = call('aiAsk', Object.assign({ token: g, weekId: wk, model: 'opus', effort: 'mid', q }, extra || {})); const p = a.pend ? call('aiPhrase', { token: g, id: a.pend }) : null; return { a, p }; };
   let x = AI('このホストの好みを教えて', '<think>考え</think>担当ホストがいちばん多く食べているのは麻婆豆腐です。');
   ok(x.a.pend && x.p.text === '担当ホストがいちばん多く食べているのは麻婆豆腐です。', '決まった答えがある質問もAIが答える（考えた部分は消す）', x);
   x = AI('どれくらい好き？', '9回食べていて、いちばん多いです。');
@@ -117,6 +118,29 @@ try {
   ok(sp.text === '' && C[C.length - 1].stop && C[C.length - 1].a === '', '止めた質問には答えを書かない', [sp, C[C.length - 1]]);
   x = AI('じゃあ火曜は？', '火曜は麻婆豆腐です。');
   ok(!sent.messages.some(m => m.content === '木曜は？' || m.content === '天気は？'), '消した・止めた質問はAIに渡さない');
+  // 買い目を提案するスキル：品名を枠番に直し、答えの文からは印を消す。出馬表にない品なら提案しない
+  x = AI('その組み立てで買っておいて', '水曜を厚めにした組です。下のボタンから買えます。\n[[買い目 火:麻婆豆腐 水:天津飯,回鍋肉 木:麻婆豆腐]]');
+  ok(x.p.prop && x.p.prop.picks.水.length === 2 && x.p.prop.picks.火.length === 1 && !/\[\[/.test(x.p.text), '買い目の提案を読む（文から印を消す）', x.p);
+  let LL = call('aiList', { token: g }).convo.pop();
+  ok(LL.prop && LL.prop.picks.水.length === 2 && !/\[\[/.test(LL.a), '提案は開き直しても残る', LL);
+  x = AI('次の質問', 'わかりました。');
+  ok(sent.messages.some(m => m.role === 'assistant' && /提案した買い目：火 麻婆豆腐/.test(m.content)), '提案した買い目は品名でAIに覚えさせる');
+  x = AI('買っておいて', '提案です。\n[[買い目 火:北京ダック 水:天津飯 木:麻婆豆腐]]');
+  ok(!x.p.prop && x.p.text === '提案です。', '出馬表にない品の提案は出さない', x.p);
+  // 検索のスキル：検索を頼まれたら Gemini の検索で答え、参照を付ける。関係ない検索はかわす
+  G.PropertiesService.getScriptProperties().setProperty('GEMINI_API_KEY', 'test');
+  let calls = 0;
+  G.UrlFetchApp.fetch = (url, o) => { calls++; const b = JSON.parse(o.payload); sent = b;
+    if (/groq/.test(url)) return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ choices: [{ message: { content: reply } }], usage: { total_tokens: 900 } }) };
+    return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text: 'フォーメーションは軸を決めて相手を広げる買い方です。' }] }, groundingMetadata: { groundingChunks: [{ web: { uri: 'https://example.com/a', title: 'example.com' } }] } }] }) }; };
+  x = AI('フォーメーションの買い方のコツをネット検索して', '[[検索 フォーメーション 買い方 コツ]]');
+  ok(/軸を決めて/.test(x.p.text) && x.p.refs && x.p.refs[0].u === 'https://example.com/a' && sent.tools && sent.tools[0].google_search, '検索して参照を付ける', x.p);
+  LL = call('aiList', { token: g }).convo.pop();
+  ok(LL.refs && LL.refs.length === 1 && !/\[\[/.test(LL.a), '参照は開き直しても残る', LL);
+  x = AI('明日の東京の天気をネットで検索して', 'OFF');
+  ok(x.p.kind === 'off' && /ネットで調べるのは/.test(x.p.text), '関係ない検索はかわす', x.p);
+  G.PropertiesService.getScriptProperties().deleteProperty('GEMINI_API_KEY');
+  G.UrlFetchApp.fetch = (url, o) => { sent = JSON.parse(o.payload); return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ choices: [{ message: { content: reply } }], usage: { total_tokens: 900, completion_tokens: 40 } }) }; };
   G.PropertiesService.getScriptProperties().deleteProperty('GROQ_API_KEY');
   // トークン切れ
   sh('設定').data.find(x => x[0] === 'AI会話のトークン（1週）')[1] = 5;

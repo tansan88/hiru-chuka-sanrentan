@@ -1052,9 +1052,28 @@
       const a = x.think ? `<div class="ai-a think" aria-label="考え中">${aiMark(true, 24)}</div>`
         : x.stop ? `<div class="ai-a stop">停止しました</div>`
         : x.typing ? `<div class="ai-a typing"><span class="ai-t">${esc(x.a.slice(0, x.typed || 0))}</span></div>`
-        : `<div class="ai-a${x.fresh ? ' in' : ''}">${esc(x.a)}${i === c.length - 1 && x.choices && x.choices.length && A.info.askOpen ? `<div class="ai-chips">${x.choices.map(t => `<button data-askq="${esc(t)}">${esc(t)}</button>`).join('')}</div>` : ''}${i === lastA ? `<div class="ai-sig">${aiMark(false, 16)}</div>` : ''}</div>`;
+        : `<div class="ai-a${x.fresh ? ' in' : ''}">${esc(x.a)}${x.refs && x.refs.length ? aiRefs(x.refs) : ''}${x.prop ? aiPropCard(x, i) : ''}${i === c.length - 1 && x.choices && x.choices.length && A.info.askOpen ? `<div class="ai-chips">${x.choices.map(t => `<button data-askq="${esc(t)}">${esc(t)}</button>`).join('')}</div>` : ''}${i === lastA ? `<div class="ai-sig">${aiMark(false, 16)}</div>` : ''}</div>`;
       return (A.editing === i ? q : q + a);
     }).join('')}</section>`;
+  }
+  // 参照（ネット検索のスキルで調べたとき）
+  function aiRefs(refs) {
+    const ok = refs.filter(r => /^https:\/\//.test(r.u));
+    return ok.length ? `<div class="ai-refs"><span>参照</span>${ok.map((r, k) => `<a href="${esc(r.u)}" target="_blank" rel="noopener noreferrer">${k + 1}. ${esc(r.t || r.u)}</a>`).join('')}</div>` : '';
+  }
+  // 買い目の提案（会話から組み立てた買い目）。1点のptを決めて、その場で買える
+  function aiPropTot(x) {
+    const v = S.data.current, bet = Number(x.pbet || 100), n = ptsOf(x.prop.picks);
+    return { n, bet, cost: n * bet, max: v ? maxPay(v, [{ picks: x.prop.picks, bet }], {}) : 0 };
+  }
+  function aiPropCard(x, i) {
+    const v = S.data.current; if (!v) return '';
+    const nm = w => (v.menus.find(m => m.waku === w) || {}).name || w, t = aiPropTot(x);
+    const open = !v.closed && S.ai.info.askOpen;
+    return `<div class="ai-prop" data-pi="${i}"><div class="ai-prop-h">${aiMark(false, 14)}<b>提案の買い目</b><span>${t.n}点</span></div>
+      ${DAYS.map(d => `<div class="ai-prop-r"><span class="d">${d}</span><span class="ns">${x.prop.picks[d].map(w => `<span class="n"><i>${w}</i>${esc(nm(w))}</span>`).join('')}</span></div>`).join('')}
+      ${x.bought ? `<div class="ai-prop-done">買いました（${fmt(x.boughtPt)}pt）</div>` : open ? `<div class="ai-prop-f"><label>1点 <input data-pbet="${i}" inputmode="numeric" value="${esc(x.pbet || '100')}" aria-label="1点あたりのpt"> pt</label><span class="tt">合計 <b>${fmt(t.cost)}</b>pt・当たれば最大 <b>${fmt(t.max)}</b>pt</span></div>
+      <button class="ai-prop-buy" data-pbuy="${i}" ${t.bet < 100 || t.bet % 100 || t.cost > S.data.me.balance ? 'disabled' : ''}>この目を買う</button>` : ''}</div>`;
   }
   // 考える時間：質問と答えの長さで変える（決まった文でも少し考えてから出す）
   const aiThinkMs = (q, a) => Math.min(3200, Math.max(900, 600 + q.length * 22 + String(a || '').length * 14 + Math.random() * 500));
@@ -1077,7 +1096,7 @@
     aiRefresh(); aiScrollEnd();
     const t0 = Date.now(), wait = async t => { const ms = aiThinkMs(q, t) - (Date.now() - t0); if (ms > 0) await aiSleep(ms); };
     const done = () => { if (A.cur === row) { A.asking = false; A.cur = null; } };
-    const show = (t, ch) => { if (row.stop) return; row.a = t; row.choices = ch; row.think = false; aiType(row, () => { done(); aiRefresh(); aiScrollEnd(); }); };
+    const show = (t, ch, ex) => { if (row.stop) return; row.a = t; row.choices = ch; row.prop = ex && ex.prop || null; row.refs = ex && ex.refs || null; row.think = false; aiType(row, () => { done(); aiRefresh(); aiScrollEnd(); }); };
     try {
       const r = await api('aiAsk', { weekId: I.weekId || (v && v.weekId), model: it.model, effort: it.effort, q, ctx: A.ctx[key] || null, cut: opt.cut || 0 }, { loading: false });
       row.row = r.row; row.pendId = r.pend || null;
@@ -1089,7 +1108,7 @@
       if (row.stop) return;
       const ok = p && p.text; if (ok && p.usage) I.usage = p.usage;
       await wait(ok ? p.text : r.text);
-      show(ok ? p.text : r.text, ok ? p.choices : r.choices);
+      show(ok ? p.text : r.text, ok ? p.choices : r.choices, ok ? p : null);
     } catch (e) { if (!row.stop) { I.convo.pop(); A.draft = q; done(); aiRefresh(); const t = document.getElementById('aiQ'); if (t) { t.value = q; aiGrow(t); } } }
   }
   // 返事を1文字ずつ出す（本家のように、数文字ずつ流れてくる感じ）。下を見ているときは一緒に下へ
@@ -1145,6 +1164,18 @@
     $app.querySelectorAll('[data-askq]').forEach(b => b.onclick = () => aiAskSend(b.dataset.askq));
     $app.querySelectorAll('[data-qi]').forEach(b => b.onclick = () => { A.qmenu = A.qmenu === +b.dataset.qi ? null : +b.dataset.qi; aiRefresh(); });
     $app.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => { A.editing = +b.dataset.edit; A.qmenu = null; aiRefresh(); const e = document.getElementById('aiE'); if (e) { aiGrow(e); e.focus(); e.setSelectionRange(e.value.length, e.value.length); } });
+    $app.querySelectorAll('[data-pbet]').forEach(el => el.oninput = () => {
+      const x = (A.info.convo || [])[+el.dataset.pbet]; if (!x) return; x.pbet = el.value.replace(/\D/g, '');
+      const t = aiPropTot(x), card = el.closest('.ai-prop'), b = card.querySelector('[data-pbuy]');
+      card.querySelector('.tt').innerHTML = `合計 <b>${fmt(t.cost)}</b>pt・当たれば最大 <b>${fmt(t.max)}</b>pt`;
+      if (b) b.disabled = t.bet < 100 || t.bet % 100 || t.cost > S.data.me.balance;
+    });
+    $app.querySelectorAll('[data-pbuy]').forEach(b => b.onclick = async () => {
+      const x = (A.info.convo || [])[+b.dataset.pbuy]; if (!x) return; b.disabled = true;
+      const t = aiPropTot(x);
+      const ok = await buySets([{ picks: { 火: x.prop.picks.火.slice(), 水: x.prop.picks.水.slice(), 木: x.prop.picks.木.slice() }, bet: t.bet }], 'AI ' + aiName(x.model || A.model));
+      if (ok) { x.bought = true; x.boughtPt = t.cost; renderAI(true); } else b.disabled = false;
+    });
     const ec = $app.querySelector('[data-edcancel]'); if (ec) ec.onclick = () => { A.editing = null; aiRefresh(); };
     const es = $app.querySelector('[data-edsend]'); if (es) {
       const e = document.getElementById('aiE'), i = +es.dataset.edsend, x = (A.info.convo || [])[i];
