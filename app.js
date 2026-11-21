@@ -1094,6 +1094,9 @@
     const v = S.data.current; if (!v) return '';
     const nm = w => (v.menus.find(m => m.waku === w) || {}).name || w, t = aiPropTot(x);
     const open = !v.closed && S.ai.info.askOpen;
+    // 開き直したときも、同じ組み合わせをもう買ってあれば「買いました」と出す
+    const same = (v.myPreds || []).find(p => DAYS.every(d => (p.picks[d] || []).slice().sort((a, b) => a - b).join() === x.prop.picks[d].slice().sort((a, b) => a - b).join()));
+    if (!x.bought && same) { x.bought = true; x.boughtPt = same.cost; }
     return `<div class="ai-prop" data-pi="${i}"><div class="ai-prop-h">${aiMark(false, 14)}<b>提案の買い目</b><span>${t.n}点</span></div>
       ${DAYS.map(d => `<div class="ai-prop-r"><span class="d">${d}</span><span class="ns">${x.prop.picks[d].map(w => `<span class="n"><i>${w}</i>${esc(nm(w))}</span>`).join('')}</span></div>`).join('')}
       ${x.bought ? `<div class="ai-prop-done">買いました（${fmt(x.boughtPt)}pt）</div>` : open ? `<div class="ai-prop-f"><label>1点 <input data-pbet="${i}" inputmode="numeric" value="${esc(x.pbet || '100')}" aria-label="1点あたりのpt"> pt</label><span class="tt">合計 <b>${fmt(t.cost)}</b>pt・${backLbl(t.n)} <b>${fmt(t.max)}</b>pt</span></div>
