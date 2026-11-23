@@ -1080,6 +1080,8 @@ function aiAnswer_(q, ctx, D) {
   if (other) return { kind: 'model', text: other.name + 'の予想を買うと見られます' };
   const bl = aiBadQ_(q); if (bl) return bl;
   // 料理そのものの話（作り方・カロリー・歴史など）は予想ではないので答えない
+  // 天気・ニュース・株などは、曜日（明日＝火曜など）が入っていても話題外（曜日の答えにしない）
+  if (/天気|気温|雨|晴れ|雪|台風|ニュース|株価|為替|ドル円/.test(q) && !aiItemOf_(q, D.cur)) return { kind: 'off', text: '昼中華の予想のことなら答えられます。たとえば「水曜は何が来そう？」と聞いてみてください', choices: AI_ASK_HELP_ };
   if (/作り方|レシピ|カロリー|栄養|歴史|由来|美味しい店|おいしい店|お店|食べログ|屋さん|屋は|屋って|店は|店って|おすすめの.{0,8}(屋|店)$/.test(q)) {
     const food = aiItemOf_(q, D.cur) || /料理|中華|ごはん|ご飯|ランチ|昼|ラーメン|屋/.test(q);
     return { kind: 'off', text: (food ? '料理やお店そのもののことは答えられません。' : '') + '昼中華の予想のことなら答えられます。たとえば「水曜は何が来そう？」と聞いてみてください', choices: AI_ASK_HELP_ };
