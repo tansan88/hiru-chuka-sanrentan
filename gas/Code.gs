@@ -610,6 +610,8 @@ const API = {
     if (published && w.締切 && new Date() >= new Date(w.締切) && deadline.getTime() !== new Date(w.締切).getTime()) {
       fail_('締切を過ぎた週は、締切を変えられません');
     }
+    // はじめて公開するときに締切を過ぎていたら止める（画面で締切を選び直してから公開する）
+    if (r.publish && !published && deadline.getTime() <= Date.now()) fail_('締切を過ぎています。締切を選び直してから公開してください');
     const hasPreds = db.preds.some(p => p.週ID === weekId);
     if (published && hasPreds && JSON.stringify(menuNames_(db, weekId)) !== JSON.stringify((r.menus || []).map(m => [Number(m.waku), String(m.name).trim()]))) {
       fail_('予想が入ったあとはメニューと人気順を変えられません');

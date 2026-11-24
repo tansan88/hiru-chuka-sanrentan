@@ -29,6 +29,12 @@ ok(r.ok && r.regulars[1] === '', '片方だけ空にできる', r);
 const wk = call('hostState', { token: h }).suggest;
 const names = ['豚肉とナスのピリ辛', 'ニラと玉子の炒め', '麻婆豆腐', '麻婆チャーハン', '麻辣鶏ラーメンとミニからげ丼', '天津飯', '餃子', 'その他'];
 const dl = new Date(Date.now() + 86400000);
+// 締切を過ぎたままでは、はじめての公開はできない（下書きは保存できる）
+r = call('saveWeek', { token: h, weekId: wk, raceName: 'テスト', deadline: new Date(Date.now() - 60000).toISOString(), menus: names.map((n, i) => ({ waku: i + 1, name: n })), publish: true });
+ok(!r.ok && /締切を過ぎています/.test(r.error), '締切を過ぎた締切では公開できない', r);
+ok(!call('state', { token: g }).current, '公開されていない');
+ok(call('saveWeek', { token: h, weekId: wk, raceName: 'テスト', deadline: new Date(Date.now() - 60000).toISOString(), menus: names.map((n, i) => ({ waku: i + 1, name: n })), publish: false }).ok, '下書きなら保存できる');
+r = call('saveWeek', { token: h, weekId: wk, raceName: 'テスト', deadline: new Date(Date.now() + 10 * 60000).toISOString(), menus: names.map((n, i) => ({ waku: i + 1, name: n })), publish: false });
 r = call('saveWeek', { token: h, weekId: wk, raceName: 'テスト', deadline: dl.toISOString(), menus: names.map((n, i) => ({ waku: i + 1, name: n })), publish: true });
 ok(r.ok, '出馬表を公開', r);
 r = call('state', { token: g });

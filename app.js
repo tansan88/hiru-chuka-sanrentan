@@ -1613,6 +1613,39 @@
       </div>
       <div class="foot">${published ? '<span></span>' : '<button class="btn ghost" id="hdraft">下書き保存</button>'}<button class="btn red" id="hpub">${published ? '変更を保存する' : '出馬表を公開する'}</button></div>`;
   }
+  // 締切を選んでから公開する画面（公開の時点で締切まで30分を切っている・過ぎているとき）
+  function dlLabel(t) { const d = new Date(t); return (d.getMonth() + 1) + '/' + d.getDate() + '（' + '日月火水木金土'[d.getDay()] + '）' + d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0'); }
+  function pickDeadline(hp, go) {
+    const now = Date.now(), cur = new Date(hp.deadline).getTime(), past = cur <= now;
+    const later = min => { const t = new Date(now + min * 60e3); t.setSeconds(0, 0); t.setMinutes(Math.ceil(t.getMinutes() / 5) * 5); return t.getTime(); };
+    const opts = [30, 60, 120].map(min => ({ k: 'm' + min, t: later(min), name: (min < 60 ? min + '分' : min / 60 + '時間') + '後' }));
+    if (!past) opts.push({ k: 'keep', t: cur, name: 'このまま' });
+    let sel = opts[0].k, custom = localDT(new Date(later(30)).toISOString());
+    const pickT = () => sel === 'custom' ? new Date(custom).getTime() : opts.find(o => o.k === sel).t;
+    const msg = past ? `締切（${dlLabel(cur)}）を過ぎています。` : `締切（${dlLabel(cur)}）まであと${Math.max(1, Math.round((cur - now) / 60e3))}分です。`;
+    const draw = () => {
+      const box = $layer.querySelector('.dlpk'); if (!box) return;
+      box.innerHTML = `<p class="dlmsg">${msg}<br>締切を選んでから公開してください。</p>
+        <div class="dlopts">${opts.map(o => `<button class="dlo ${sel === o.k ? 'on' : ''}" data-k="${o.k}" aria-pressed="${sel === o.k}"><b>${o.name}</b><span>${dlLabel(o.t)}</span></button>`).join('')}
+        <button class="dlo ${sel === 'custom' ? 'on' : ''}" data-k="custom" aria-pressed="${sel === 'custom'}"><b>時刻を指定</b><span>${sel === 'custom' ? '' : '下で選ぶ'}</span></button></div>
+        ${sel === 'custom' ? `<label class="field"><span style="font-size:12px;color:var(--sub)">締切</span><input type="datetime-local" id="dlc" value="${esc(custom)}"></label>` : ''}
+        <div class="err" id="dlerr"></div>
+        <button class="btn red" id="dlgo">この締切で公開する</button>`;
+      box.querySelectorAll('[data-k]').forEach(b => b.onclick = () => { sel = b.dataset.k; draw(); });
+      const c = document.getElementById('dlc'); if (c) c.onchange = () => { custom = c.value; };
+      document.getElementById('dlgo').onclick = () => {
+        if (c) custom = c.value;
+        const t = pickT();
+        if (isNaN(t)) return document.getElementById('dlerr').textContent = '締切の日時を入れてください';
+        if (t <= Date.now()) return document.getElementById('dlerr').textContent = '締切は今より後の時刻にしてください';
+        hp.deadline = localDT(new Date(t).toISOString());
+        closeLayer(); render(); go();
+      };
+    };
+    openLayer(`<div class="scrim" data-close></div><div class="sheet" role="dialog" aria-label="締切を選んで公開"><div class="grab"><span></span></div>
+      <div class="sh"><h2>締切を選んで公開</h2><button class="xbtn" data-close aria-label="閉じる">✕</button></div><div class="dlpk"></div></div>`);
+    draw();
+  }
   function newMenus(H) {
     const reg = H.regulars || [];
     return [1, 2, 3, 4, 5].map(i => ({ waku: i, name: '' })).concat([0, 1].map(i => ({ waku: 6 + i, name: reg[i] || '', fixed: true })), [{ waku: 8, name: OTHER_NAME }]);
@@ -1672,7 +1705,15 @@
       const d = new Date(hp.weekId + 'T00:00'); if (d.getDay() !== 2) return er.textContent = '開催日は火曜日を選んでください';
       const menus = hp.menus.filter(m => m.name.trim());
       if (menus.length < 2) return er.textContent = 'メニューを2品以上入れてください';
-      if (publish && !(w && w.status === '受付中') && !confirm('出馬表を公開します。みんなが予想できるようになります。')) return;
+      const first = publish && !(w && w.status === '受付中');
+      // 締切まで30分を切っている・過ぎているときは、締切を選んでから公開する（選ぶ画面が公開の確認を兼ねる）
+      if (first && new Date(hp.deadline).getTime() - Date.now() < 30 * 60e3) return pickDeadline(hp, () => send(true));
+      if (first && !confirm('出馬表を公開します。みんなが予想できるようになります。')) return;
+      return send(publish);
+    };
+    const send = async publish => {
+      const er = document.getElementById('herr'); er.textContent = '';
+      const menus = hp.menus.filter(m => m.name.trim());
       try { await busy(async () => {
         await api('saveWeek', { weekId: hp.weekId, raceName: hp.raceName, mumble: hp.mumble, deadline: new Date(hp.deadline).toISOString(), menus: menus.map(m => ({ waku: m.waku, name: m.name.trim() })), publish: publish || (w && w.status === '受付中') });
         toast(publish ? (w && w.status === '受付中' ? '保存しました' : '出馬表を公開しました') : '下書きを保存しました');
